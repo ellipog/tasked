@@ -281,35 +281,13 @@ public final class FtbText {
                                     int y, int maxWidth, int defaultInk) {
         Objects.requireNonNull(r, "r");
         Objects.requireNonNull(text, "text");
-        List<InkRun> runs = runs(text);
-        int total = 0;
-        for (InkRun run : runs) {
-            total += r.textWidth(run.text());
-        }
-        if (maxWidth <= 0) {
-            return 0;
-        }
-        if (total <= maxWidth) {
-            drawRuns(r, runs, x, y, defaultInk);
-            return total;
-        }
-        String ellipsis = "\u2026";
-        int room = maxWidth - r.textWidth(ellipsis);
-        int atX = x;
-        int drawn = 0;
-        if (room > 0) {
-            int[] cut = drawCut(r, runs, x, y, room, defaultInk);
-            atX = cut[0];
-            drawn = cut[1];
-        }
-        else {
-            int[] cut = drawCut(r, runs, x, y, maxWidth, defaultInk);
-            atX = cut[0];
-            drawn = cut[1];
-            return drawn;
-        }
-        r.text(ellipsis, atX, y, defaultInk);
-        return drawn + r.textWidth(ellipsis);
+        // Through the cut: the widths below are the renderer's own memo, so the numbers are
+        // the ones this method has always drawn with, and the pixels are the ones it has
+        // always drawn — decided once now rather than once per call site per frame.
+        return draw(r,
+                truncate(text, maxWidth,
+                        dev.ellipog.armature.client.ui.kit.Measure.of(r::textWidth, r.lineHeight())),
+                x, y, defaultInk);
     }
 
     /**
@@ -327,7 +305,77 @@ public final class FtbText {
     }
 
     /** One drawable run: visible words in one ink, underline or not. */
-    private record InkRun(String text, int ink, boolean underline) {
+    public record InkRun(String text, int ink, boolean underline) {
+    }
+
+    /**
+     * A title cut to a width, computed once and drawn many times: the runs that fit, the
+     * advance they and any ellipsis draw, and whether the ellipsis follows them.
+     *
+     * <p>What {@link #drawTruncated} decides on every call, split so a per-frame pass can
+     * decide per stamp and only draw per frame. The runs are the exact sequence the draw
+     * would have issued — whole runs that fit, then single characters of the cut run —
+     * so drawing a cut is pixel-identical to truncating at the draw site.
+     */
+    public record Cut(List<InkRun> runs, int advance, boolean ellipsis) {
+    }
+
+    /**
+     * Cuts a title to a width without drawing it.
+     *
+     * <p>Pure: widths come from the measure, so a caller with a memoised one pays the
+     * glyph walk once per distinct string rather than once per frame. The ellipsis is
+     * {@code …}, and its width is part of the advance exactly as {@link #drawTruncated}
+     * counts it — which delegates here, so the two cannot disagree.
+     */
+    public static Cut truncate(String text, int maxWidth,
+                               dev.ellipog.armature.client.ui.kit.Measure measure) {
+        Objects.requireNonNull(text, "text");
+        Objects.requireNonNull(measure, "measure");
+        List<InkRun> runs = runs(text);
+        int total = 0;
+        for (InkRun run : runs) {
+            total += measure.width(run.text());
+        }
+        if (maxWidth <= 0) {
+            return new Cut(List.of(), 0, false);
+        }
+        if (total <= maxWidth) {
+            return new Cut(List.copyOf(runs), total, false);
+        }
+        String ellipsis = "\u2026";
+        int room = maxWidth - measure.width(ellipsis);
+        if (room > 0) {
+            List<InkRun> kept = cutRuns(runs, room, measure);
+            int drawn = 0;
+            for (InkRun run : kept) {
+                drawn += measure.width(run.text());
+            }
+            return new Cut(kept, drawn + measure.width(ellipsis), true);
+        }
+        List<InkRun> kept = cutRuns(runs, maxWidth, measure);
+        int drawn = 0;
+        for (InkRun run : kept) {
+            drawn += measure.width(run.text());
+        }
+        return new Cut(kept, drawn, false);
+    }
+
+    /**
+     * Draws a cut where the caller measured it.
+     *
+     * @return the advance, in pixels: where the next thing on the line starts
+     */
+    public static int draw(dev.ellipog.armature.client.render.GuiRenderer r, Cut cut, int x, int y,
+                           int defaultInk) {
+        Objects.requireNonNull(r, "r");
+        Objects.requireNonNull(cut, "cut");
+        drawRuns(r, cut.runs(), x, y, defaultInk);
+        if (cut.ellipsis()) {
+            String ellipsis = "\u2026";
+            r.text(ellipsis, x + cut.advance() - r.textWidth(ellipsis), y, defaultInk);
+        }
+        return cut.advance();
     }
 
     /**
@@ -403,35 +451,37 @@ public final class FtbText {
     }
 
     /**
-     * Runs drawn until the budget runs out, cut mid-run when it must be.
+     * The runs a cut budget keeps: whole runs that fit, then single characters of the
+     * run it cuts through.
      *
-     * @return the x after the last drawn ink, and the advance drawn
+     * <p>The draw decision without the drawing, so a stamp can keep it and a frame only
+     * re-issues it. Into the run character by character: a run is a label fragment, never
+     * a document, and the linear walk cannot be off by one the way a hand-written binary
+     * search can.
      */
-    private static int[] drawCut(dev.ellipog.armature.client.render.GuiRenderer r, List<InkRun> runs,
-                                 int x, int y, int budget, int defaultInk) {
-        int atX = x;
+    private static List<InkRun> cutRuns(List<InkRun> runs, int budget,
+                                        dev.ellipog.armature.client.ui.kit.Measure measure) {
+        List<InkRun> kept = new ArrayList<>();
         int drawn = 0;
         for (InkRun run : runs) {
-            int width = r.textWidth(run.text());
+            int width = measure.width(run.text());
             if (drawn + width <= budget) {
-                atX += drawRun(r, run, atX, y, defaultInk);
+                kept.add(run);
                 drawn += width;
                 continue;
             }
-            // Into the run character by character: a run is a label fragment, never a document, and
-            // the linear walk cannot be off by one the way a hand-written binary search can.
             for (int i = 0; i < run.text().length(); i++) {
                 String ch = run.text().substring(i, i + 1);
-                int charWidth = r.textWidth(ch);
+                int charWidth = measure.width(ch);
                 if (drawn + charWidth > budget) {
                     break;
                 }
-                atX += drawRun(r, new InkRun(ch, run.ink(), run.underline()), atX, y, defaultInk);
+                kept.add(new InkRun(ch, run.ink(), run.underline()));
                 drawn += charWidth;
             }
             break;
         }
-        return new int[] {atX, drawn};
+        return kept;
     }
 
     /**

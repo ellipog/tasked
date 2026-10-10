@@ -141,6 +141,7 @@ public final class ToolsLayout {
     public static final String BOOK_SECTION = "section:book";
     public static final String BOOK_TITLE = "book:title";
     public static final String BOOK_ICON = "book:icon";
+    public static final String BOOK_LOD = "book:lod";
 
     /**
      * The chapter tab's appearance fold: everything under it writes the chapter's own theme patch.
@@ -289,6 +290,7 @@ public final class ToolsLayout {
             Map.entry(BOOK_SECTION, "tenet.dev.tools.help.book"),
             Map.entry(BOOK_TITLE, "tenet.dev.tools.help.book_title"),
             Map.entry(BOOK_ICON, "tenet.dev.tools.help.book_icon"),
+            Map.entry(BOOK_LOD, "tenet.dev.tools.help.book_lod"),
             Map.entry(APPEARANCE_SECTION, "tenet.dev.tools.help.appearance"));
 
     /** The help a row key offers, or null. Palette rows share one; colour rows have none. */
@@ -804,12 +806,23 @@ public final class ToolsLayout {
      * list to build from, and so a reader of this class can see the whole of what a book row is.
      */
     public static List<Action> bookRows(boolean open) {
+        return bookRows(open, false);
+    }
+
+    /**
+     * The same, with the book's own LOD answer as the switch shows it: the pending edit
+     * first, then the tree's — see the screen's book-value reader for why the row cannot
+     * read the tree alone.
+     */
+    public static List<Action> bookRows(boolean open, boolean lodDisabled) {
         List<Action> rows = new ArrayList<>();
         rows.add(Action.heading(BOOK_SECTION,
                 (open ? "\u25bc " : "\u203a ") + "tenet.dev.tools.book"));
         if (open) {
             rows.add(Action.row(BOOK_TITLE, "tenet.dev.tools.book_title"));
             rows.add(Action.row(BOOK_ICON, "tenet.dev.tools.book_icon"));
+            rows.add(Action.toggle(BOOK_LOD, "tenet.dev.tools.book_lod",
+                    lodDisabled ? ON : OFF));
         }
         return List.copyOf(rows);
     }

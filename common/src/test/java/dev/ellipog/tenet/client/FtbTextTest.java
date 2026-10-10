@@ -426,4 +426,32 @@ class FtbTextTest {
         assertTrue(r.drewText("…"), "the cut is marked");
         assertTrue(r.styled().size() >= 1, "and what drew wore its ink");
     }
+
+    @Test
+    @DisplayName("a cut decided once draws exactly what truncating at the draw site draws")
+    void truncateDrawsWhatDrawTruncatedDraws() {
+        // The canvas's label pass decides per stamp and draws per frame: this is the
+        // equivalence that makes the split pixel-identical, over plain words, inks, a
+        // mid-run cut, a room that fits nothing, and a room that fits everything.
+        for (String text : new String[] {"Punch a Tree", "&aGreen Tree", "&aGreen &bTree &cForest",
+                "Fish & Chips", ""}) {
+            for (int room : new int[] {0, 3, 20, 200, Integer.MAX_VALUE}) {
+                dev.ellipog.tenet.client.render.RecordingRenderer atSite =
+                        dev.ellipog.tenet.client.render.RecordingRenderer.create();
+                int siteAdvance = FtbText.drawTruncated(atSite, text, 10, 20, room, FtbText.WHITE);
+
+                dev.ellipog.tenet.client.render.RecordingRenderer fromCut =
+                        dev.ellipog.tenet.client.render.RecordingRenderer.create();
+                FtbText.Cut cut = FtbText.truncate(text, room,
+                        dev.ellipog.armature.client.ui.kit.Measure.of(fromCut::textWidth,
+                                fromCut.lineHeight()));
+                int cutAdvance = FtbText.draw(fromCut, cut, 10, 20, FtbText.WHITE);
+
+                assertEquals(siteAdvance, cutAdvance,
+                        "the advance disagrees for \"" + text + "\" in room " + room);
+                assertEquals(atSite.calls(), fromCut.calls(),
+                        "the draw calls disagree for \"" + text + "\" in room " + room);
+            }
+        }
+    }
 }

@@ -189,6 +189,15 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
         return extra.showLockIcons();
     }
 
+    /**
+     * Whether the canvas draws without its zoom tiers unless a chapter says otherwise: the
+     * book-level half of {@code disableCanvasLod}, with a chapter's own flag winning per
+     * chapter. See {@link QuestSettingsExtra} for the FTB-Quests reason this defaults off.
+     */
+    public boolean disableCanvasLod() {
+        return extra.disableCanvasLod();
+    }
+
     /** Whether quests shut out by an exclusive choice vanish from the reader's book. */
     public boolean hideExcludedQuests() {
         return extra.hideExcludedQuests();

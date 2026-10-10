@@ -102,7 +102,8 @@ public record ChapterManifest(
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
             "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress", "defaultMinWidth",
-            "autofocus", "defaultSequentialTasks", "alwaysInvisible", "tags", "dependencyStyle",
+            "autofocus", "defaultSequentialTasks", "alwaysInvisible", "disableCanvasLod", "tags",
+            "dependencyStyle",
             "theme", "themePatch", "autoClaim",
             "dependsOn", "prerequisiteMode", "minRequired", "completesWhen",
             "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",

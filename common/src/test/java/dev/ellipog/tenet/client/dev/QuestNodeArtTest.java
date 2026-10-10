@@ -165,7 +165,7 @@ class QuestNodeArtTest {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
                     QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", "", 0.75,
-                    0xFF1069B4, 0, 0));
+                    false, 0xFF1069B4, 0, 0));
 
             assertEquals(1, r.textures().size(), "one blit, not an item: " + r.describe());
             assertEquals("my_pack:textures/gui/emblem.png",
@@ -179,7 +179,7 @@ class QuestNodeArtTest {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
                     QuestShape.ROUNDED.geometry(), null, "not a path :::", "", 0.75,
-                    0xFF1069B4, 0, 0));
+                    false, 0xFF1069B4, 0, 0));
 
             assertTrue(r.textures().isEmpty(), "nothing unparseable reaches the blit: " + r.describe());
         }
@@ -190,7 +190,7 @@ class QuestNodeArtTest {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
                     QuestShape.ROUNDED.geometry(), null, "", "occultism:block/chalk_glyph/0", 0.75,
-                    0xFF1069B4, 0, 0));
+                    false, 0xFF1069B4, 0, 0));
 
             assertEquals(1, r.sprites().size(), "one atlas draw, not an item: " + r.describe());
             assertEquals("occultism:block/chalk_glyph/0",
@@ -204,10 +204,32 @@ class QuestNodeArtTest {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
                     QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png",
-                    "occultism:block/chalk_glyph/0", 0.75, 0xFF1069B4, 0, 0));
+                    "occultism:block/chalk_glyph/0", 0.75, false, 0xFF1069B4, 0, 0));
 
             assertEquals(1, r.textures().size(), "the blit, not the atlas: " + r.describe());
             assertTrue(r.sprites().isEmpty(), "one picture wins: " + r.describe());
+        }
+
+        @Test
+        @DisplayName("a tierless node draws its icon below the box gate, a tiered one draws the block")
+        void alwaysIconsBypassesTheBoxGate() {
+            // A twelve-pixel node holds an icon box below the twelve-pixel gate, so the
+            // tiered drawing falls back to the state-coloured block while the tierless one
+            // blits. The texture arm stands in for every arm here: the gate is one boolean
+            // read before the arms diverge, and an item stack cannot exist headless.
+            RecordingRenderer tiered = new RecordingRenderer();
+            QuestNodeArt.draw(tiered, 0, 0, new QuestNodeArt.Look(12, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", "",
+                    0.75, false, 0xFF1069B4, 0, 0));
+            assertTrue(tiered.textures().isEmpty(),
+                    "a tiered node too small to hold its icon draws the block: " + tiered.describe());
+
+            RecordingRenderer tierless = new RecordingRenderer();
+            QuestNodeArt.draw(tierless, 0, 0, new QuestNodeArt.Look(12, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", "",
+                    0.75, true, 0xFF1069B4, 0, 0));
+            assertEquals(1, tierless.textures().size(),
+                    "a tierless node draws its icon at any box: " + tierless.describe());
         }
 
         @Test
@@ -223,7 +245,7 @@ class QuestNodeArtTest {
             for (int i = 0; i < paths.length; i++) {
                 RecordingRenderer r = new RecordingRenderer();
                 QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(72, shapes[i],
-                        shapes[i].geometry(), null, paths[i], "", 1.0, 0xFF1069B4, 0, 0));
+                        shapes[i].geometry(), null, paths[i], "", 1.0, false, 0xFF1069B4, 0, 0));
 
                 assertEquals(1, r.textures().size(),
                         paths[i] + " must blit on its node: " + r.describe());

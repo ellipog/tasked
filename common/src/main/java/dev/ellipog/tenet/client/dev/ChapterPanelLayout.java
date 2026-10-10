@@ -372,6 +372,13 @@ public final class ChapterPanelLayout {
                 rows.add(ToolsLayout.Action.toggle("alwaysInvisible",
                         "tenet.dev.chapter.always_invisible",
                         flagOn(chapter, "alwaysInvisible") ? ToolsLayout.ON : ToolsLayout.OFF));
+                // Whether this chapter's canvas draws without the zoom tiers: icons, rings,
+                // titles and badges at every zoom, as FTB Quests drew them. Absent defers to
+                // the book's own flag, which an explicit `false` here overrides — the toggle
+                // writes what it is moved to, so touching it ends the deference either way.
+                rows.add(ToolsLayout.Action.toggle("disableCanvasLod",
+                        "tenet.dev.chapter.lod_off",
+                        flagOn(chapter, "disableCanvasLod") ? ToolsLayout.ON : ToolsLayout.OFF));
                 // What this chapter's quests do about their *own* dependencies, unless a quest says
                 // otherwise. Beside the row above because they are the pair an author will confuse: that one
                 // withholds this chapter's row from a reader, these withhold its quests from everybody.
@@ -838,6 +845,7 @@ public final class ChapterPanelLayout {
             Map.entry("completesWhen", "tenet.dev.chapter.help.completes_when"),
             Map.entry("hideUntilDependenciesComplete", "tenet.dev.chapter.help.hide_until_deps"),
             Map.entry("alwaysInvisible", "tenet.dev.chapter.help.always_invisible"),
+            Map.entry("disableCanvasLod", "tenet.dev.chapter.help.lod_off"),
             Map.entry("defaultHideUntilDependenciesComplete",
                     "tenet.dev.chapter.help.default_hide_deps_complete"),
             Map.entry("defaultHideUntilDependenciesVisible",

@@ -59,6 +59,12 @@ class EditReachTest {
                 "the chapter's own hiding flag: what it changes is derived on the client from the tree");
         assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetGroup("collapsedByDefault", VALUE)));
         assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetIndex("bookTitle", VALUE)));
+        assertEquals(TreeRefresh.Touch.COSMETIC,
+                reach(new EditorOp.SetChapter("disableCanvasLod", VALUE)),
+                "the chapter's own LOD answer: what it changes is derived on the client from the tree");
+        assertEquals(TreeRefresh.Touch.COSMETIC,
+                reach(new EditorOp.SetIndex("disableCanvasLod", VALUE)),
+                "and the book's answer with it, for the same reason");
     }
 
     @Test

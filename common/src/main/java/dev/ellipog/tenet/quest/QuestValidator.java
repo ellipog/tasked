@@ -568,6 +568,12 @@ public final class QuestValidator {
         if (document.has(path + ".alwaysInvisible")) {
             Checks.optionalBool(document, path + ".alwaysInvisible", problems);
         }
+        // Whether this chapter's canvas draws without the zoom tiers. A plain bool check:
+        // absence defers to the book's own flag, which is the codec's Optional rather than a
+        // validation rule, so there is nothing here to bound beyond "a bool".
+        if (document.has(path + ".disableCanvasLod")) {
+            Checks.optionalBool(document, path + ".disableCanvasLod", problems);
+        }
         // The chapter's defaults for its quests, checked the same way. Note the pair above: the one
         // without `default` withholds the chapter's row, and these decide what its quests do.
         for (String defaulted : new String[] {"defaultHideUntilDependenciesComplete",

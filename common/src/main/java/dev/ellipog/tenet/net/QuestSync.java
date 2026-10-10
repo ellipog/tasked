@@ -420,6 +420,13 @@ public final class QuestSync {
             if (chapter.rules().alwaysInvisible()) {
                 one.addProperty("alwaysInvisible", true);
             }
+            // Whether this chapter's canvas draws without the zoom tiers. Written whenever the
+            // file says anything — true *or* false — because absence is not "off" but "defer
+            // to the book": a chapter re-enabling the tiers under a tierless book is an
+            // explicit false on the wire, and sparse-only-true could not say it. An old
+            // reader ignores the key and tiers as before.
+            chapter.rules().disableCanvasLod()
+                    .ifPresent(lod -> one.addProperty("disableCanvasLod", lod));
             // The quest this chapter centres on when selected, since version 17. Only when set:
             // absence means the old bounding-box centre, which is what a version-16 reader does with
             // a chapter it hears nothing about.
@@ -498,6 +505,9 @@ public final class QuestSync {
         }
         if (settings.disableGui()) {
             root.addProperty("disableGui", true);
+        }
+        if (settings.disableCanvasLod()) {
+            root.addProperty("disableCanvasLod", true);
         }
         if (!settings.lockMessage().isEmpty()) {
             root.addProperty("lockMessage", settings.lockMessage());

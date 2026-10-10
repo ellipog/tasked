@@ -346,6 +346,36 @@ public final class ClientQuestCache {
     }
 
     /**
+     * Whether this quest's adopted icon cycles: no icon of its own, and the first task
+     * with anything to lend lends a filter naming more than one frame.
+     *
+     * <p>The same priority walk as {@link #adoptedQuestIcon}, asked as a question rather
+     * than for the picture — and the two must stay the same walk, or the stamp that
+     * restamps for animation restamps for icons that never move. A single-frame filter
+     * is still (its one frame draws always), a picture or requirement ahead of any
+     * filter wins still, and the glyph second loop never cycles.
+     *
+     * <p>What the canvas stamp reads to decide whether the second is part of its key:
+     * a cycling icon advances once a second, and a stamp that could not see the clock
+     * would freeze it on the frame the stamp was taken.
+     */
+    public static boolean adoptionCycles(Entry entry) {
+        if (!entry.icon().isEmpty() || !entry.iconId().isEmpty() || !entry.textureIcon().isEmpty()
+                || !entry.spriteIcon().isEmpty()) {
+            return false;
+        }
+        for (TaskEntry task : entry.tasks()) {
+            if (!filterFrame(task).isEmpty()) {
+                return FilterMatches.of(task.filter()).shown().size() > 1;
+            }
+            if (!task.picture().isEmpty() || !task.item().isEmpty()) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * One gate a task or a reward carries, resolved ready to draw.
      *
      * <p>What a locked row's hover names. The item is resolved here, like a task's, and the rest is the
@@ -476,7 +506,17 @@ public final class ClientQuestCache {
                                  * the row, while an author still does. Sparse on the wire, so absent
                                  * means shown, which is what every older server says.
                                  */
-                                boolean alwaysInvisible) {
+                                boolean alwaysInvisible,
+                                /**
+                                 * Whether this chapter's canvas draws without the zoom tiers, or null
+                                 * when the file says nothing and the book's own flag answers.
+                                 *
+                                 * <p>Null rather than false, because absence defers: a chapter that
+                                 * re-enables the tiers under a tierless book arrives as an explicit
+                                 * {@code false}, which a defaulted boolean could not tell apart from
+                                 * "never heard of it". See {@link #lodDisabledFor} for the resolution.
+                                 */
+                                Boolean lodDisabled) {
 
         public ChapterEntry {
             dependsOn = List.copyOf(dependsOn);
@@ -1157,6 +1197,7 @@ public final class ClientQuestCache {
     private static volatile boolean hideExcludedQuests = false;
     private static volatile boolean pauseGame = false;
     private static volatile boolean guiDisabled = false;
+    private static volatile boolean bookLodDisabled = false;
     private static volatile String lockMessage = "";
 
     /**
@@ -1263,6 +1304,27 @@ public final class ClientQuestCache {
      */
     public static List<ChapterEntry> chapters() {
         return chapters;
+    }
+
+    /**
+     * The chapters by id, derived from the list the way {@link #byId()} derives the
+     * quests: keyed on the list's identity, so a reader can never hold a new list
+     * with an old index. First wins, as a scan would.
+     */
+    private static volatile List<ChapterEntry> chaptersIndexedFor;
+    private static volatile Map<String, ChapterEntry> chaptersById = Map.of();
+
+    private static Map<String, ChapterEntry> chaptersById() {
+        List<ChapterEntry> current = chapters;
+        if (current != chaptersIndexedFor) {
+            Map<String, ChapterEntry> built = new java.util.HashMap<>(Math.max(16, current.size() * 2));
+            for (ChapterEntry entry : current) {
+                built.putIfAbsent(entry.id(), entry);
+            }
+            chaptersById = Map.copyOf(built);
+            chaptersIndexedFor = current;
+        }
+        return chaptersById;
     }
 
     /**
@@ -1591,6 +1653,38 @@ public final class ClientQuestCache {
      */
     public static boolean guiDisabled() {
         return guiDisabled;
+    }
+
+    /**
+     * Whether the book's chapters draw without the zoom tiers unless a chapter says
+     * otherwise: the file's {@code disableCanvasLod}, and the fallback a chapter that
+     * says nothing defers to.
+     *
+     * <p>False for every server that predates the key. Read with a chapter's own answer
+     * in {@link #lodDisabledFor} — either silence defers, so a caller that only asks
+     * one of them tiers a chapter the pack asked to draw whole.
+     */
+    public static boolean bookLodDisabled() {
+        return bookLodDisabled;
+    }
+
+    /**
+     * Whether one chapter's canvas draws without the zoom tiers: its own answer when
+     * the tree carried one, else the book's.
+     *
+     * <p>Through the chapter index rather than a scan, because the callers are per
+     * node: the canvas asks for every node it draws, every frame. A null chapter —
+     * no chapter on screen — reads as the book's own answer, which is the only
+     * reading that keeps "the book says tierless" true where no chapter overrides it.
+     */
+    public static boolean lodDisabledFor(String chapterId) {
+        if (chapterId != null) {
+            ChapterEntry found = chaptersById().get(chapterId);
+            if (found != null && found.lodDisabled() != null) {
+                return found.lodDisabled();
+            }
+        }
+        return bookLodDisabled;
     }
 
     /**
@@ -2073,6 +2167,7 @@ public final class ClientQuestCache {
             hideExcludedQuests = false;
             pauseGame = false;
             guiDisabled = false;
+            bookLodDisabled = false;
             lockMessage = "";
             treeReceived = false;
         }
@@ -2195,6 +2290,7 @@ public final class ClientQuestCache {
         hideExcludedQuests = false;
         pauseGame = false;
         guiDisabled = false;
+        bookLodDisabled = false;
         lockMessage = "";
         treeReceived = false;
         // The sampled outlines go with the trees that asked for them: they are keyed by shape and
@@ -2303,7 +2399,9 @@ public final class ClientQuestCache {
                         str(chapter, "titleFallback"),
                         str(chapter, "autofocus"),
                         chapter.has("alwaysInvisible")
-                                && chapter.get("alwaysInvisible").getAsBoolean()));
+                                && chapter.get("alwaysInvisible").getAsBoolean(),
+                        chapter.has("disableCanvasLod")
+                                ? chapter.get("disableCanvasLod").getAsBoolean() : null));
 
                 // The canvas's decoration, when the server sent any -- version 14 and a chapter that has
                 // some. Read by the element codec rather than field by field, which is the other half of
@@ -2393,6 +2491,8 @@ public final class ClientQuestCache {
                 && root.get("hideExcludedQuests").getAsBoolean();
         pauseGame = root.has("pauseGame") && root.get("pauseGame").getAsBoolean();
         guiDisabled = root.has("disableGui") && root.get("disableGui").getAsBoolean();
+        bookLodDisabled = root.has("disableCanvasLod")
+                && root.get("disableCanvasLod").getAsBoolean();
         lockMessage = str(root, "lockMessage");
 
         List<Entry> parsed = new ArrayList<>(quests.size());

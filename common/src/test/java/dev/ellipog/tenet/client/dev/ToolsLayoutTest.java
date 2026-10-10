@@ -543,8 +543,18 @@ class ToolsLayoutTest {
         assertTrue(folded.get(0).label().startsWith("\u203a"), "a folded section points sideways");
 
         List<ToolsLayout.Action> open = ToolsLayout.bookRows(true);
-        assertEquals(List.of(ToolsLayout.BOOK_SECTION, ToolsLayout.BOOK_TITLE, ToolsLayout.BOOK_ICON),
-                open.stream().map(ToolsLayout.Action::key).toList(), "the heading, then the two fields");
+        assertEquals(List.of(ToolsLayout.BOOK_SECTION, ToolsLayout.BOOK_TITLE, ToolsLayout.BOOK_ICON,
+                        ToolsLayout.BOOK_LOD),
+                open.stream().map(ToolsLayout.Action::key).toList(), "the heading, then the fields");
+        assertEquals(ToolsLayout.OFF,
+                open.stream().filter(row -> row.key().equals(ToolsLayout.BOOK_LOD)).findFirst()
+                        .orElseThrow().buttonLabel(),
+                "tiered until the pack says otherwise");
+        assertEquals(ToolsLayout.ON,
+                ToolsLayout.bookRows(true, true).stream()
+                        .filter(row -> row.key().equals(ToolsLayout.BOOK_LOD)).findFirst()
+                        .orElseThrow().buttonLabel(),
+                "and the switch shows the pack's own answer");
 
         Slot row = new Slot(ToolsLayout.BOOK_TITLE, 10, 20, 200, 16);
         Slot field = ToolsLayout.valueField(row, ToolsLayout.LABEL_ROOM);

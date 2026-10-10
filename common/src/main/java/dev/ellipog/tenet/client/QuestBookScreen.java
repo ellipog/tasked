@@ -5842,7 +5842,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // The Book section first: the pack's own name and icon, which are the book's rather than any
         // theme's -- see `ToolsLayout.bookRows`. Its own fold, so an operator theming the book can put
         // the pack's fields away.
-        List<ToolsLayout.Action> bookRows = new ArrayList<>(ToolsLayout.bookRows(toolsBookOpen));
+        List<ToolsLayout.Action> bookRows = new ArrayList<>(
+                ToolsLayout.bookRows(toolsBookOpen, bookLodValue()));
         bookRows.addAll(ToolsLayout.rows(ClientAppearance.LOOK.motion(), DevMode.snap(),
                 DevMode.progress(), toolsColoursOpen, paletteOptions(), toolsPaletteOpen,
                 editedBackground(), toolsCanvasOpen, canvasCopyLabel()));
@@ -6945,6 +6946,14 @@ public final class QuestBookScreen extends ArmatureScreen
         else if (key.equals(ToolsLayout.PROGRESS)) {
             DevMode.setProgress(wanted);
             status(wanted ? "Chapter progress bars on" : "Chapter progress bars off", false);
+            rebuildWidgets();
+        }
+        else if (key.equals(ToolsLayout.BOOK_LOD)) {
+            // Explicit either way, like the chapter tab's toggles: a cleared draft is
+            // indistinguishable from no draft, so writing null would show the old state
+            // until the tree answers. The file saying `false` is the honest reading.
+            sendBookField("disableCanvasLod", new JsonPrimitive(wanted));
+            status(wanted ? "Canvas LOD off \u2014 icons always drawn" : "Canvas LOD on", false);
             rebuildWidgets();
         }
     }
@@ -14352,7 +14361,7 @@ public final class QuestBookScreen extends ArmatureScreen
      * player's. The count comes from one walk per revision (see {@link #rewardCounts}), and the
      * badge's own art and anchoring are {@link RewardBadge}'s.
      */
-    private void drawRewardBadges(GuiRenderer r, List<ClientQuestCache.Entry> visible, CanvasDetail detail) {
+    private void drawRewardBadges(GuiRenderer r, List<FrameNode> nodes, CanvasDetail detail) {
         Map<String, Integer> waiting = rewardCounts().byQuest();
         if (waiting.isEmpty()) {
             return;
@@ -14362,8 +14371,8 @@ public final class QuestBookScreen extends ArmatureScreen
             // the number is unreadable and the disc is larger than the node it sits on. See CanvasDetail.
             return;
         }
-        for (ClientQuestCache.Entry quest : visible) {
-            Integer count = waiting.get(quest.id());
+        for (FrameNode node : nodes) {
+            Integer count = waiting.get(node.id());
             if (count == null) {
                 continue;
             }
@@ -14371,7 +14380,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // darker shade of the badge's own colour rather than a theme edge, because a grey outline
             // around a gold disc reads as two unrelated things.
             int fill = ArmatureTheme.inProgress();
-            RewardBadge.draw(r, quest.geometry(), nodeScreenX(quest), nodeScreenY(quest), nodeSize(quest),
+            RewardBadge.draw(r, node.geometry(), node.x(), node.y(), node.size(),
                     count, fill, Colour.shade(fill, -0.45F), ArmatureTheme.canvas());
         }
     }
@@ -14384,22 +14393,22 @@ public final class QuestBookScreen extends ArmatureScreen
      * is the node's own — locked, rings tier, pack and quest flags — read here rather than carried,
      * so the pass and the node cannot disagree about which nodes wear one.
      */
-    private void drawLockMarks(GuiRenderer r, List<ClientQuestCache.Entry> visible, CanvasDetail detail) {
+    private void drawLockMarks(GuiRenderer r, List<FrameNode> nodes, CanvasDetail detail) {
         if (!detail.rings()) {
             return;
         }
         boolean showLockIcons = ClientQuestCache.showLockIcons();
-        for (ClientQuestCache.Entry quest : visible) {
-            if (shownState(quest) != QuestState.LOCKED) {
+        for (FrameNode node : nodes) {
+            if (node.state() != QuestState.LOCKED) {
                 continue;
             }
             if (!dev.ellipog.tenet.client.dev.QuestVisibility.drawsLockMark(showLockIcons,
-                    quest.hideLockIcon())) {
+                    node.hideLock())) {
                 continue;
             }
-            int size = nodeSize(quest);
+            int size = node.size();
             int box = Math.max(9, size / 4);
-            drawLockMark(r, nodeScreenX(quest) + size - box / 2, nodeScreenY(quest) - box / 2, box);
+            drawLockMark(r, node.x() + size - box / 2, node.y() - box / 2, box);
         }
     }
 
@@ -23469,7 +23478,13 @@ public final class QuestBookScreen extends ArmatureScreen
         // nodes on screen at once, and it is also where the fine detail stops being readable -- so the
         // tier is read here rather than decided per drawing. See CanvasDetail for the tiers and for why
         // both thresholds sit below the zoom the project's pictures are taken at.
-        CanvasDetail detail = CanvasDetail.of(viewport().scale());
+        //
+        // A chapter or book that disabled the LOD skips the tiers outright: FULL at every zoom,
+        // so rings, titles and badges draw where a tiered chapter would have dropped them.
+        // The icon half of the same promise is per node, in `drawNode`; this is the rest.
+        CanvasDetail detail = ClientQuestCache.lodDisabledFor(effectiveChapter())
+                ? CanvasDetail.FULL
+                : CanvasDetail.of(viewport().scale());
 
         // The chapter's markers, in the node layer but beneath the nodes: a shortcut beside the quests
         // it points at, wearing each target's state. Before the nodes so a node keeps the press over a
@@ -23483,20 +23498,20 @@ public final class QuestBookScreen extends ArmatureScreen
         // Only the nodes the canvas can show. The scissor already hides the rest, but a clipped fill is
         // still a fill that was built, transformed and submitted -- and at high zoom most of a chapter is
         // off-canvas, which is why this is the node half of the zoom fix. Culled by stampCanvas.
-        List<ClientQuestCache.Entry> visible = canvasVisible;
-        for (ClientQuestCache.Entry quest : visible) {
-            float flash = quest.id().equals(flashQuest)
+        List<FrameNode> nodes = frameNodes;
+        for (FrameNode node : nodes) {
+            float flash = node.id().equals(flashQuest)
                     ? CanvasReveal.flash(now - flashStart, CanvasReveal.FLASH_MILLIS) : 0F;
-            drawNode(r, quest, nodeHover.amount(quest.id(), now), flash, detail);
+            drawNode(r, node, nodeHover.amount(node.id(), now), flash, detail);
         }
         // Titles in their own pass, after every node, so a label can see the other nodes -- see the
-        // comment on drawLabels for what happened when it could not. Fed the visible list, because the
-        // overlap it tests for is a collision with a node that was *drawn*.
-        drawLabels(r, visible, detail);
+        // stamp for what happened when it could not. Placed, cut and collision-tested there; the
+        // frame re-issues fills and runs.
+        drawLabels(r);
         // The reward badges last of the node furniture: a title's backdrop is opaque and reaches the
         // corner on a long name, so a badge drawn with the nodes would vanish exactly when the chapter
         // is busiest.
-        drawRewardBadges(r, visible, detail);
+        drawRewardBadges(r, nodes, detail);
         // The padlocks after everything node-shaped, straddling their node's top-right corner:
         // a large icon reaches the corner the lock would sit inside, and vanilla's item pipeline
         // draws over fills whatever order they are issued in — a lock drawn with its node ends up
@@ -23505,7 +23520,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // with the quest's own `hide_lock_icon`, either silence winning; a locked node without one
         // still reads locked — the blocked edge and the dim wash stay — because the mark is the
         // announcement, not the state.
-        drawLockMarks(r, visible, detail);
+        drawLockMarks(r, nodes, detail);
 
         // The handle layer **after the nodes**, deliberately: a dot that overlaps a node -- an anchor
         // dragged round to its far side -- has to be on top of it, or the thing in your hand disappears.
@@ -23591,22 +23606,14 @@ public final class QuestBookScreen extends ArmatureScreen
     // asked to solve a rendering problem. Two layers of forwarding around one pose-stack manipulation,
     // and the manipulation is the only part that had anything to say.
 
-    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover, float flash,
+    private void drawNode(GuiRenderer r, FrameNode node, float hover, float flash,
                           CanvasDetail detail) {
-        QuestState state = shownState(entry);
-        int size = nodeSize(entry);
-        int x = nodeScreenX(entry);
-        int y = nodeScreenY(entry);
+        int size = node.size();
+        int x = node.x();
+        int y = node.y();
+        int edge = node.edge();
 
-        // The border reads the node-edge tokens rather than the state inks, and that is the whole of
-        // what those four tokens are for -- `ThemeToken` describes them as "Node border, ...". The
-        // switch used to reach for `complete`/`inProgress`/`available` here, which left three of the
-        // four stating a colour that nothing drew with: every built-in happens to state each pair
-        // byte-identical, so nothing looked wrong and no test could see it. A pack theme that wants
-        // borders apart from its progress inks now has the knob the names promise.
-        int edge = QuestNodeArt.edgeFor(state);
-
-        boolean isSelected = isSelected(entry.id());
+        boolean isSelected = isSelected(node.id());
 
         // The hover ring's alpha is scaled by the eased hover, so it fades in and out rather than
         // appearing. `translucent` rather than `alphaOf`: HOVER_RING is already 0x80 alpha, and
@@ -23617,7 +23624,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // go", and the one moment the node must not blend in with its neighbours.
         // The keyboard's focus rings like a selection, and that is deliberate: it is the pointer for
         // somebody who has no pointer, so it has to be as loud as the mouse's own mark. See CanvasFocus.
-        boolean isFocused = canvasFocus.focused().map(entry.id()::equals).orElse(false);
+        boolean isFocused = canvasFocus.focused().map(node.id()::equals).orElse(false);
         int ring = 0;
         if (flash > 0F) {
             ring = Colour.translucent(ArmatureTheme.selectedRing(), flash);
@@ -23637,34 +23644,19 @@ public final class QuestBookScreen extends ArmatureScreen
         // The wash FOLLOWS THE SHAPE, and that is the whole point of drawing it here rather than with a
         // `fill` rectangle over the icon's box -- see `QuestNodeArt` for the drawing and for why it is
         // shared with the settings preview rather than written twice.
-        int wash = QuestNodeArt.washFor(state);
+        int wash = node.wash();
 
-        // `entry.geometry()` rather than `entry.shape()`: the outline with its rotation applied, built
-        // once when the tree arrived rather than per node per frame. A pending shape or rotation — a
-        // settings-page change the tree has not carried yet — is drawn through the same cached outline
-        // table, so the canvas follows the click; icon scale is read through the draft the same way.
-        QuestShape drawnShape = drawnShape(entry);
-        int drawnRotation = fieldDraft.number(entry.chapterId(), entry.id(), "rotation", entry.rotation());
-        boolean draftedLook = drawnShape != entry.shape() || drawnRotation != entry.rotation();
-        // A quest with no icon of its own wears its first task's, cycling for a filter —
-        // resolved here, at draw time, so the rotation survives. See adoptedQuestIcon.
-        ItemStack nodeIcon = entry.icon();
-        if (nodeIcon.isEmpty()) {
-            nodeIcon = ClientQuestCache.adoptedQuestIcon(entry);
-        }
-        QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, drawnShape,
-                draftedLook ? ClientQuestCache.geometry(drawnShape, drawnRotation) : entry.geometry(),
-                // The icon is always offered, and the node's own box decides whether it is drawn. The zoom
-                // used to decide, through the detail tier — and that was the wrong question twice over: it
-                // refused an icon on a landmark node that had room to spare, and the refusal showed as an
-                // empty outline. See CanvasSettings and QuestNodeArt.
-                nodeIcon,
-                entry.textureIcon(),
-                entry.spriteIcon(),
-                fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
+        QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, node.shape(), node.geometry(),
+                // The icon was offered at stamp time, and the node's own box decided whether it
+                // is drawn. See CanvasSettings and QuestNodeArt for why the zoom never did.
+                node.icon(), node.texture(), node.sprite(), node.iconScale(),
+                // A chapter or book that disabled the LOD draws every icon at every zoom — FTB
+                // parity, resolved per chapter so one tierless chapter does not tierless the rest.
+                // One map lookup per node per frame, which is what the chapter index is for.
+                ClientQuestCache.lodDisabledFor(node.chapterId()),
                 edge, ring, wash));
 
-        if (mayEditNow() && !questVisible(entry.id())) {
+        if (mayEditNow() && !questVisible(node.id())) {
             // Marked, because the author is looking at a node the reader's book does not draw -- and
             // without a mark the only way to find out would be to open the book as a player and notice
             // something missing. A dashed square, deliberately unlike every other ring on this canvas:
@@ -23696,7 +23688,8 @@ public final class QuestBookScreen extends ArmatureScreen
             ring = ArmatureTheme.selectedRing();
         }
         QuestLinkArt.draw(new QuestLinkArt.Frame(r, viewport()), slot.slot(), slot.target().icon(),
-                slot.target().textureIcon(), slot.target().spriteIcon(), state, ring);
+                slot.target().textureIcon(), slot.target().spriteIcon(), state, ring,
+                ClientQuestCache.lodDisabledFor(slot.target().chapterId()));
     }
 
     /** A dashed one-pixel square around a node that is hidden from players. */
@@ -23768,77 +23761,23 @@ public final class QuestBookScreen extends ArmatureScreen
      * Drawing labels inside the node loop is what produced the garbled text in the screenshot — each
      * label knew only about its own node, so three of them were drawn straight through each other.
      */
-    private void drawLabels(GuiRenderer r, List<ClientQuestCache.Entry> quests, CanvasDetail detail) {
-        if (!detail.labels()) {
-            // Zoomed far enough out that a title is unreadable at any length: measuring and drawing them
-            // is work whose only product is a smudge. The hover caption still names whatever the pointer
-            // is over. See CanvasDetail.
-            return;
-        }
-        // Only the quests that asked for a name, and the room measured from *these* nodes rather than from
-        // every node — a named quest next to an unnamed one has the whole gap to itself, because the unnamed
-        // one draws nothing there to collide with. Both are built by `stampCanvas` now: see the note there.
-        List<ClientQuestCache.Entry> named = canvasNamed;
-        if (named.isEmpty()) {
-            return;
-        }
-
-        int room = labelRoom(named);
-        if (room < MIN_LABEL_WIDTH) {
-            // Not enough room for a readable label anywhere in this chapter, so none are drawn and the
-            // hover caption carries the name. Drawing them anyway is what "Punch a SomewherStone To…"
-            // was: three titles interleaved, which reads as a corrupt string rather than as crowding.
-            return;
-        }
-
-        // One box per node on the canvas, and the index that finds a node's own box — built once per
-        // canvas, not once per frame. See LabelOverlap for the collision test itself, which also stops
-        // looking at boxes that cannot reach the label's rows.
-        List<LabelOverlap.Box> boxes = canvasBoxes;
-        Map<String, Integer> boxOf = canvasBoxOf;
-        LabelOverlap overlap = canvasOverlap;
-
-        for (ClientQuestCache.Entry entry : named) {
-            // The box rather than the getters again, so the label's placement and the collision test
-            // cannot disagree about where its node is.
-            int owner = boxOf.get(entry.id());
-            LabelOverlap.Box box = boxes.get(owner);
-            int size = box.size();
-            int y = box.y();
-
-            String shown = Measure.truncate(titleOf(entry), room, textMeasure(r));
-            int width = r.textWidth(shown);
-            // Clamped inward so a label on the edge node is not half off the canvas, but never so far
-            // that it slides away from the node it belongs to.
-            int textX = Mth.clamp(box.x() + size / 2 - width / 2, canvasLeft() + 2,
-                    visibleCanvasRight() - width - 2);
-            int textY = y + size + LABEL_GAP;
-
-            // Checked against **every** node, not just the named ones, and the difference is real.
-            //
-            // `named` is the right list to *measure the room* from -- an unnamed quest draws nothing
-            // between two nodes, so it cannot crowd a label. It is the wrong list to test a collision
-            // against: a label drawn over an unnamed quest's icon is just as unreadable as one drawn
-            // over a named node, and the unnamed node is still there on the screen. Passing `named`
-            // here was a regression introduced with the default, and it would have shown up as a label
-            // sitting across a neighbour's icon in exactly the chapters that opt in to names.
-            if (textY + 9 > canvasBottom() || overlap.over(owner, textX, textY, width)) {
-                // A label drawn over the node below it, or out of the canvas, is worse than no label.
-                continue;
-            }
-
-            QuestState state = shownState(entry);
+    private void drawLabels(GuiRenderer r) {
+        // Built by the stamp, down to the collision test: the frame re-issues fills and runs.
+        // The colour stays here because selection is a press rather than a revision, and a
+        // selected label must answer it on the press rather than on the next stamp.
+        for (FrameLabel label : frameLabels) {
+            QuestState state = label.state();
             int textColour = switch (state) {
                 case LOCKED -> ArmatureTheme.blocked();
                 case COMPLETED -> ArmatureTheme.complete();
-                default -> isSelected(entry.id()) ? ArmatureTheme.title() : ArmatureTheme.body();
+                default -> isSelected(label.id()) ? ArmatureTheme.title() : ArmatureTheme.body();
             };
 
             // A backdrop, so a label sitting over a connector line is still readable. Opaque rather
-            // than shadowed: a shadow does not help against a line of similar brightness. The title wears
-            // its colours; the room was measured plain, and colours are widthless so the two agree.
-            r.fill(textX - 2, textY - 1, textX + width + 2, textY + 9, ArmatureTheme.labelBackdrop());
-            FtbText.drawTruncated(r, titleOfRaw(entry), textX, textY, room, textColour);
+            // than shadowed: a shadow does not help against a line of similar brightness.
+            r.fill(label.x() - 2, label.y() - 1, label.x() + label.cut().advance() + 2, label.y() + 9,
+                    ArmatureTheme.labelBackdrop());
+            FtbText.draw(r, label.cut(), label.x(), label.y(), textColour);
         }
     }
 
@@ -24055,19 +23994,69 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private record CanvasState(long tree, long progress, long draft, long editors, String dragging,
                                float dragX, float dragY, float scale, int offsetX, int offsetY,
-                               int left, int top, int right, int bottom, String chapter, Object theme,
-                               boolean authoring, long text, CanvasElement elementPreview,
+                               int left, int top, int right, int bottom, int visibleRight, String chapter,
+                               Object theme, boolean authoring, long text, CanvasElement elementPreview,
                                long elementShape, String selectedElement, long linkShape,
                                QuestLink linkPreview, String selectedLink) {
     }
 
     private CanvasState canvasState;
     private List<FrameEdge> canvasEdges;
-    private List<ClientQuestCache.Entry> canvasVisible;
-    private List<ClientQuestCache.Entry> canvasNamed = List.of();
-    private List<LabelOverlap.Box> canvasBoxes = List.of();
-    private Map<String, Integer> canvasBoxOf = Map.of();
-    private LabelOverlap canvasOverlap;
+
+    /**
+     * One node ready to draw: everything {@code drawNode} recomputed per frame, worked
+     * out once per stamp.
+     *
+     * <h2>Why a record of values rather than the entry</h2>
+     *
+     * <p>Because the draw asked the same questions sixty times a second: a draft lookup
+     * and a viewport mapping for the position and size, a dependency walk for the shown
+     * state, a task walk for the adopted icon, a draft read each for the shape, the
+     * rotation and the icon scale. None of those answers moves without the stamp moving
+     * — positions ride the viewport and the drag fields, states ride the tree, the
+     * progress and the draft, icons ride the tree — and the stamp's key already names
+     * every one of them, which is what makes the key complete rather than hopeful.
+     *
+     * <p>What is deliberately <b>not</b> here: the ring (hover eases per frame, selection
+     * and flash are presses rather than revisions), the LOD answer (one map lookup per
+     * node per frame, which is what the chapter index is for), and the hidden mark's
+     * visibility question (a cached map lookup and a mode flag, both cheaper than the
+     * record they would have to ride in on).
+     */
+    private record FrameNode(String id, String chapterId, int x, int y, int size,
+                             QuestState state, QuestShape shape,
+                             dev.ellipog.armature.client.ui.shape.Shape geometry,
+                             ItemStack icon, String texture, String sprite, double iconScale,
+                             int edge, int wash, boolean hideLock) {
+    }
+
+    /**
+     * One label ready to draw: placed, cut and collision-tested per stamp, re-issued
+     * per frame.
+     *
+     * <p>The cut carries the runs the draw would have decided on, so the frame draws
+     * fills and runs and measures nothing — not the title's locale resolution, not the
+     * truncation walk, not the FTB token parse. The colour stays per frame: selection
+     * is a press rather than a revision, and a selected label must answer it on the
+     * press rather than on the next stamp.
+     */
+    private record FrameLabel(String id, QuestState state, int x, int y, FtbText.Cut cut) {
+    }
+
+    /** The chapter's nodes as the frame draws them, in draw order. Rebuilt by the stamp. */
+    private List<FrameNode> frameNodes = List.of();
+
+    /** The chapter's labels as the frame draws them, placed and cut. Rebuilt by the stamp. */
+    private List<FrameLabel> frameLabels = List.of();
+
+    /**
+     * Whether any drawn node wears a cycling adopted icon, and the second it was last
+     * drawn for. A cycling icon advances once a second, so a stamp that could not see
+     * the clock would freeze it — the stamp re-runs when the second turns, but only
+     * while one is actually on screen. See {@link ClientQuestCache#adoptionCycles}.
+     */
+    private boolean canvasCycling;
+    private long canvasAnimSecond;
 
     /**
      * One canvas element as this canvas draws it: the element, its measured box, and whether it is hidden.
@@ -24246,7 +24235,8 @@ public final class QuestBookScreen extends ArmatureScreen
         CanvasState key = new CanvasState(ClientQuestCache.treeRevision(),
                 ClientQuestCache.progressRevision(), fieldDraft.version(), editors.epoch(), draggedNode,
                 dragNodeX, dragNodeY, viewport().scale(), viewport().offsetX(), viewport().offsetY(),
-                canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), effectiveChapter(),
+                canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), visibleCanvasRight(),
+                effectiveChapter(),
                 ArmatureTheme.current(), mayEditNow(), ClientQuestCache.textRevision(),
                 // A gesture in flight re-stamps, exactly as a node's drag does: the canvas draws the element as
                 // the hand has it, and the previewed element is the whole of what the frame draws differently.
@@ -24272,11 +24262,59 @@ public final class QuestBookScreen extends ArmatureScreen
                 // The link the Chapter tab's list has chosen, so its ring follows the panel's selection
                 // the way an element's does.
                 selectedLink);
-        if (key.equals(canvasState)) {
+        // A still canvas pays nothing here. The one exception is a cycling adopted icon,
+        // which advances once a second with no revision behind it: while one is drawn the
+        // second is part of the key's world, and the stamp re-runs when it turns.
+        long nowSecond = Util.getMillis() / 1000L;
+        if (key.equals(canvasState) && (!canvasCycling || canvasAnimSecond == nowSecond)) {
             return;
         }
         canvasEdges = frameEdges(quests);
-        canvasVisible = quests.stream().filter(this::nodeVisible).toList();
+        List<ClientQuestCache.Entry> visible = quests.stream().filter(this::nodeVisible).toList();
+
+        // One node ready to draw, per drawn node: the position and size, the shown state,
+        // the drafted shape and rotation resolved to geometry, the adopted icon, the icon
+        // scale, the edge and the wash. Sixty frames a second of draft lookups, dependency
+        // walks and task walks become one stamp's worth, because every answer rides state
+        // the key above already names. The ring, the LOD answer and the hidden mark stay
+        // per frame — see FrameNode for why each is the wrong kind of thing to keep.
+        List<FrameNode> nodes = new ArrayList<>(visible.size());
+        boolean cycling = false;
+        for (ClientQuestCache.Entry entry : visible) {
+            QuestState state = shownState(entry);
+            int size = nodeSize(entry);
+            int x = nodeScreenX(entry);
+            int y = nodeScreenY(entry);
+            // The border reads the node-edge tokens rather than the state inks, and that is the
+            // whole of what those four tokens are for — see QuestNodeArt.edgeFor, which owns the
+            // switch so the canvas's nodes and links cannot disagree about it.
+            // The geometry is the outline with its rotation applied: a pending shape or rotation
+            // — a settings-page change the tree has not carried yet — resolves through the same
+            // cached outline table, so the canvas follows the click. A quest with no icon of its
+            // own wears its first task's, cycling for a filter — see adoptedQuestIcon.
+            QuestShape drawnShape = drawnShape(entry);
+            int drawnRotation = fieldDraft.number(entry.chapterId(), entry.id(), "rotation",
+                    entry.rotation());
+            boolean draftedLook = drawnShape != entry.shape() || drawnRotation != entry.rotation();
+            ItemStack nodeIcon = entry.icon();
+            boolean adopted = false;
+            if (nodeIcon.isEmpty()) {
+                nodeIcon = ClientQuestCache.adoptedQuestIcon(entry);
+                adopted = !nodeIcon.isEmpty();
+            }
+            if (adopted && ClientQuestCache.adoptionCycles(entry)) {
+                cycling = true;
+            }
+            nodes.add(new FrameNode(entry.id(), entry.chapterId(), x, y, size, state, drawnShape,
+                    draftedLook ? ClientQuestCache.geometry(drawnShape, drawnRotation)
+                            : entry.geometry(),
+                    nodeIcon, entry.textureIcon(), entry.spriteIcon(),
+                    fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
+                    QuestNodeArt.edgeFor(state), QuestNodeArt.washFor(state), entry.hideLockIcon()));
+        }
+        frameNodes = List.copyOf(nodes);
+        canvasCycling = cycling;
+        canvasAnimSecond = nowSecond;
 
         // The canvas's decoration: the chapter's own elements, gated and culled, with the boxes the press
         // path will use. Rebuilt with everything else, because an element edit re-sends the tree -- which is
@@ -24363,42 +24401,71 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         canvasLinks = List.copyOf(links);
 
-        // The label pass's inputs, which are the same kind of thing and were rebuilt every frame: the named
-        // quests (a draft flag lookup per quest in the chapter), a box per node, the index that finds a
-        // node's own box, and the sorted structures the collision test needs. All of it from state this
-        // record already names — positions, draft, tree, progress, the chapter and the viewport — so a still
-        // canvas pays for it once instead of sixty times a second.
-        if (CanvasDetail.of(viewport().scale()).labels()) {
+        // One label ready to draw, per named node that survives the collision test: placed
+        // against its node's box, cut to the room, and tested against every node — named or
+        // not, because a label drawn over an unnamed quest's icon is just as unreadable as
+        // one drawn over a named node. The room is measured from the named nodes alone, for
+        // the opposite reason: an unnamed quest draws nothing between two nodes, so it
+        // cannot crowd a label. All of it from state the key already names, so a still
+        // canvas pays for it once instead of sixty times a second; a tierless chapter
+        // builds them at every zoom, for the same reason the draw forces FULL.
+        List<FrameLabel> labels = new ArrayList<>();
+        if (ClientQuestCache.lodDisabledFor(effectiveChapter())
+                || CanvasDetail.of(viewport().scale()).labels()) {
             List<ClientQuestCache.Entry> named = new ArrayList<>();
             for (ClientQuestCache.Entry entry : quests) {
                 if (fieldDraft.flag(entry.chapterId(), entry.id(), "showTitle", entry.showTitle())) {
                     named.add(entry);
                 }
             }
-            List<LabelOverlap.Box> boxes = new ArrayList<>(quests.size());
-            Map<String, Integer> boxOf = new HashMap<>(quests.size() * 2);
-            for (ClientQuestCache.Entry entry : quests) {
-                boxOf.put(entry.id(), boxes.size());
-                boxes.add(new LabelOverlap.Box(nodeScreenX(entry), nodeScreenY(entry), nodeSize(entry)));
+            // Not enough room for a readable label anywhere in this chapter, and nothing is
+            // built at all: the hover caption carries the name. Building them anyway is what
+            // "Punch a SomewherStone To…" was: three titles interleaved, which reads as a
+            // corrupt string rather than as crowding.
+            int room = labelRoom(named);
+            if (room >= MIN_LABEL_WIDTH) {
+                // One box per node on the canvas, and the index that finds a node's own box:
+                // the placement and the collision test read the same boxes, so the two cannot
+                // disagree about where a node is.
+                List<LabelOverlap.Box> boxes = new ArrayList<>(quests.size());
+                Map<String, Integer> boxOf = new HashMap<>(quests.size() * 2);
+                for (ClientQuestCache.Entry entry : quests) {
+                    boxOf.put(entry.id(), boxes.size());
+                    boxes.add(new LabelOverlap.Box(nodeScreenX(entry), nodeScreenY(entry),
+                            nodeSize(entry)));
+                }
+                LabelOverlap overlap = new LabelOverlap(boxes);
+                dev.ellipog.armature.client.ui.kit.Measure measure = textMeasure(r);
+                for (ClientQuestCache.Entry entry : named) {
+                    int owner = boxOf.get(entry.id());
+                    LabelOverlap.Box box = boxes.get(owner);
+                    int size = box.size();
+                    FtbText.Cut cut = FtbText.truncate(titleOfRaw(entry), room, measure);
+                    int width = cut.advance();
+                    // Clamped inward so a label on the edge node is not half off the canvas,
+                    // but never so far that it slides away from the node it belongs to. The
+                    // clamp reads the dock-aware edge, which is why it sits in the key.
+                    int textX = Mth.clamp(box.x() + size / 2 - width / 2, canvasLeft() + 2,
+                            visibleCanvasRight() - width - 2);
+                    int textY = box.y() + size + LABEL_GAP;
+                    if (textY + 9 > canvasBottom() || overlap.over(owner, textX, textY, width)) {
+                        // A label drawn over the node below it, or out of the canvas, is worse
+                        // than no label.
+                        continue;
+                    }
+                    labels.add(new FrameLabel(entry.id(), shownState(entry), textX, textY, cut));
+                }
             }
-            canvasNamed = List.copyOf(named);
-            canvasBoxes = List.copyOf(boxes);
-            canvasBoxOf = Map.copyOf(boxOf);
-            canvasOverlap = new LabelOverlap(canvasBoxes);
         }
-        else {
-            // Zoomed far enough out that no title is drawn: the boxes would be work for nothing.
-            canvasNamed = List.of();
-            canvasBoxes = List.of();
-            canvasBoxOf = Map.of();
-            canvasOverlap = null;
-        }
+        // Zoomed far enough out that no title is drawn, the labels stay empty: the boxes
+        // above would be work for nothing.
+        frameLabels = List.copyOf(labels);
         canvasState = key;
         // What this rebuild produced, for the overlay. Published here rather than per frame because these
         // describe the canvas's *contents*, which only move when it is rebuilt -- and because `rebuilds` is
         // the number that says a drag is re-stamping, which no frame counter can show. See `CanvasStats`.
         dev.ellipog.tenet.client.dev.CanvasStats.published(
-                quests.size(), canvasEdges.size(), canvasNamed.size(), canvasVisible.size());
+                quests.size(), canvasEdges.size(), frameLabels.size(), frameNodes.size());
     }
 
     /**
@@ -31686,6 +31753,13 @@ public final class QuestBookScreen extends ArmatureScreen
         return fieldDraft.text(effectiveChapter(),
                 dev.ellipog.tenet.client.dev.FieldDraft.BOOK_OWNER, "bookTitle",
                 ClientQuestCache.bookTitleRaw());
+    }
+
+    /** The book's LOD answer as its switch should show it: the pending edit first, then the tree's own. */
+    private boolean bookLodValue() {
+        return fieldDraft.flag(effectiveChapter(),
+                dev.ellipog.tenet.client.dev.FieldDraft.BOOK_OWNER, "disableCanvasLod",
+                ClientQuestCache.bookLodDisabled());
     }
 
     /** Commits the book's name. Blank clears it, so the client's own title comes back. */

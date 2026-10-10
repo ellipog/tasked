@@ -155,6 +155,7 @@ class ChapterPanelLayoutTest {
                         "defaultPrerequisiteMode", "autoClaim",
                         "prerequisiteMode", "minRequired", "dependsOn", "completesWhen",
                         "hideUntilDependenciesComplete", "alwaysInvisible",
+                        "disableCanvasLod",
                         "defaultHideUntilDependenciesComplete",
                         "defaultHideUntilDependenciesVisible",
                         "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
@@ -183,6 +184,7 @@ class ChapterPanelLayoutTest {
         assertEquals("tenet.dev.chapter.completes_when", row(rows, "completesWhen").label());
         assertEquals("tenet.dev.chapter.hide_until_deps",
                 row(rows, "hideUntilDependenciesComplete").label());
+        assertEquals("tenet.dev.chapter.lod_off", row(rows, "disableCanvasLod").label());
         assertEquals("tenet.dev.chapter.aliases", row(rows, "aliases").label());
         assertEquals("tenet.dev.chapter.default_hide_deps_complete",
                 row(rows, "defaultHideUntilDependenciesComplete").label());
@@ -377,6 +379,26 @@ class ChapterPanelLayoutTest {
         assertEquals(ToolsLayout.OFF, row(plain, "alwaysInvisible").buttonLabel(),
                 "shown is what a chapter that says nothing does");
         assertEquals("", row(plain, "tags").value(), "nothing said, nothing shown");
+    }
+
+    @Test
+    @DisplayName("the LOD switch reads the file, and silence reads as tiered")
+    void lodSwitchReadsTheFile() {
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(JsonParser.parseString("""
+                {
+                  "id": "second_steps",
+                  "title": "Second Steps",
+                  "disableCanvasLod": true,
+                  "quests": []
+                }
+                """).getAsJsonObject(), Set.of());
+
+        assertEquals(ToolsLayout.ON, row(rows, "disableCanvasLod").buttonLabel(),
+                "a switch row's state is its button's, like every other flag on this tab");
+
+        List<ToolsLayout.Action> plain = ChapterPanelLayout.rows(chapter(), Set.of());
+        assertEquals(ToolsLayout.OFF, row(plain, "disableCanvasLod").buttonLabel(),
+                "tiered is what a chapter that says nothing draws");
     }
 
     @Test

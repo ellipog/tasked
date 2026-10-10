@@ -18,9 +18,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The id index behind {@code ClientQuestCache.entry}.
@@ -154,5 +156,45 @@ class ClientQuestEntryTest {
         assertSame(held.get(0), ClientQuestCache.entry("stone"),
                 "first wins: a plain put would have kept the second, and the two disagree about which "
                         + "quest a click opens");
+    }
+
+    @Test
+    @DisplayName("adoption cycling is the adopted icon's own walk, asked as a question")
+    void adoptionCyclingMirrorsAdoption() {
+        // A filter naming many frames cycles; a single-frame filter, a plain item
+        // requirement, an explicit icon and a quest of nothing all stand still. The
+        // stamp restamps the second only for the first, so the question and the walk
+        // it mirrors must agree about which quests move.
+        accept("""
+                {"id": "cycling", "title": "Many", "tasks": [
+                  {"type": "tenet:filter", "filter": "mod(minecraft)", "count": 1}]}
+                """,
+                """
+                {"id": "still", "title": "One", "tasks": [
+                  {"type": "tenet:filter", "filter": "item(minecraft:stone)", "count": 1}]}
+                """,
+                """
+                {"id": "plain", "title": "Logs", "tasks": [
+                  {"type": "tenet:item", "item": "minecraft:oak_log", "count": 8}]}
+                """,
+                """
+                {"id": "dressed", "title": "Wearing", "icon": {"item": "minecraft:diamond"},
+                  "tasks": [{"type": "tenet:filter", "filter": "mod(minecraft)", "count": 1}]}
+                """,
+                """
+                {"id": "bare", "title": "Nothing", "tasks": [
+                  {"type": "tenet:checkmark", "title": "Say hello"}]}
+                """);
+
+        assertTrue(ClientQuestCache.adoptionCycles(ClientQuestCache.entry("cycling")),
+                "a filter with frames to show moves once a second");
+        assertFalse(ClientQuestCache.adoptionCycles(ClientQuestCache.entry("still")),
+                "one frame is still, however it arrived");
+        assertFalse(ClientQuestCache.adoptionCycles(ClientQuestCache.entry("plain")),
+                "an adopted requirement does not move");
+        assertFalse(ClientQuestCache.adoptionCycles(ClientQuestCache.entry("dressed")),
+                "an explicit icon wins over every task");
+        assertFalse(ClientQuestCache.adoptionCycles(ClientQuestCache.entry("bare")),
+                "and a quest with nothing to lend stands still too");
     }
 }

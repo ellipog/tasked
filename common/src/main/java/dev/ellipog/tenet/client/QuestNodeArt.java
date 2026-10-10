@@ -73,6 +73,9 @@ public final class QuestNodeArt {
      *                   item arm: one picture wins, in the order the cache resolves, and a region
      *                   nothing holds draws the missing mark like an unheld file.
      * @param iconScale  how much of the node the icon is asked to fill; the outline caps it
+     * @param alwaysIcons whether the icon is drawn whatever the box measures: the per-node
+     *                   answer of a chapter or book that disabled the canvas LOD. False keeps
+     *                   the box-size gate below, which is what every tiered chapter draws with
      * @param edge       the panel's border colour, from the node's state
      * @param ring       the hover or selection ring's colour, or 0 for none
      * @param wash       the state wash's colour, or 0 for none
@@ -80,12 +83,12 @@ public final class QuestNodeArt {
      *                   node is its icon and whose geometry is still a square for the hit test
      */
     public record Look(int size, QuestShape shape, Shape geometry, ItemStack icon, String texture,
-                        String sprite, double iconScale, int edge, int ring, int wash) {
+                        String sprite, double iconScale, boolean alwaysIcons, int edge, int ring, int wash) {
 
         /** The item-arm shape, for a caller with no texture: the texture is empty, not null. */
         public Look(int size, QuestShape shape, Shape geometry, ItemStack icon, double iconScale,
                     int edge, int ring, int wash) {
-            this(size, shape, geometry, icon, "", "", iconScale, edge, ring, wash);
+            this(size, shape, geometry, icon, "", "", iconScale, false, edge, ring, wash);
         }
     }
 
@@ -175,11 +178,17 @@ public final class QuestNodeArt {
         // zoom instead is what drew a large gear node as an empty outline with a stand-in block — the box is
         // the honest question and it was already being asked. See CanvasSettings.
         //
+        // A chapter or book that disabled the LOD answers the question before it is asked
+        // (`alwaysIcons`): FTB Quests drew every icon at every zoom, and a migrated pack reads
+        // the same way. The stand-in block below is then only for icons the client cannot
+        // resolve, never for ones it judged too small.
+        boolean iconFits = look.alwaysIcons() || iconBox[2] >= CanvasSettings.iconMinBox();
+        //
         // A texture icon draws through the blit rather than the stack: the cache keeps the stack empty
         // for a texture, so the item path below would read it as "no icon" and draw the block. A path
         // nothing holds draws the game's missing texture, which names the picture nobody can draw.
         boolean drewItem = false;
-        if (!look.texture().isEmpty() && iconBox[2] >= CanvasSettings.iconMinBox()) {
+        if (!look.texture().isEmpty() && iconFits) {
             net.minecraft.resources.ResourceLocation texture =
                     net.minecraft.resources.ResourceLocation.tryParse(look.texture());
             if (texture != null) {
@@ -187,7 +196,7 @@ public final class QuestNodeArt {
                 drewItem = true;
             }
         }
-        if (!drewItem && !look.sprite().isEmpty() && iconBox[2] >= CanvasSettings.iconMinBox()) {
+        if (!drewItem && !look.sprite().isEmpty() && iconFits) {
             // An atlas region, drawn like a chapter element's sprite: the cache keeps the stack
             // empty for a sprite for the same reason it does for a texture. A region nothing
             // holds draws the missing mark through the sprite call itself.
@@ -200,7 +209,7 @@ public final class QuestNodeArt {
         }
         if (!drewItem) {
             drewItem = look.icon() != null && !look.icon().isEmpty()
-                    && iconBox[2] >= CanvasSettings.iconMinBox()
+                    && iconFits
                     && r.icon(look.icon(), iconBox[0], iconBox[1], iconBox[2]);
         }
 

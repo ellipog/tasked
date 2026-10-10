@@ -594,6 +594,11 @@ public final class EditorOps {
             // own row, derived on the client like the visibility flags above, so no stored progress
             // moves when it changes. The gate itself is unaffected.
             "alwaysInvisible",
+            // And whether a chapter's canvas draws without the zoom tiers: what the canvas
+            // draws, derived on the client from the tree it has just been sent — see
+            // ClientQuestCache.lodDisabledFor — so like every other presentation flag above
+            // this moves no stored progress either.
+            "disableCanvasLod",
             // And whether recipe viewers list it: the viewer content is rebuilt from the tree the
             // client has just been sent, so like every other presentation flag above this moves no
             // stored progress either.

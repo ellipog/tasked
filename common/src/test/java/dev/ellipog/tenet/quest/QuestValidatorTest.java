@@ -556,6 +556,23 @@ class QuestValidatorTest {
     }
 
     @Test
+    @DisplayName("a chapter LOD answer is clean, in every state it can be written")
+    void disableCanvasLodIsClean() {
+        for (String json : List.of(
+                Fixtures.fileWithChapter("\"disableCanvasLod\": true,", Fixtures.q("a").build()),
+                Fixtures.fileWithChapter("\"disableCanvasLod\": false,", Fixtures.q("a").build()),
+                Fixtures.fileWithChapter("", Fixtures.q("a").build()))) {
+            Problems problems = validate(json);
+
+            assertTrue(problems.all().stream()
+                            .noneMatch(problem -> problem.message().contains("isableCanvasLod")),
+                    "a disableCanvasLod flag should not be reported, got:\n"
+                            + problems.all().stream().map(DataProblem::render)
+                                    .collect(Collectors.joining("\n")));
+        }
+    }
+
+    @Test
     @DisplayName("a positive report is not an error, so it does not stop the file loading")
     void warningsDoNotBlockALoad() {
         Problems problems = validate(Fixtures.file(Fixtures.q("a").build()));

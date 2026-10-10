@@ -75,6 +75,11 @@
           "default": false,
           "description": "Whether a locked quest wears its padlock on the canvas. No marks unless the file asks for them; write `true` for FTB's old always-drawn marks. A quest opts out for itself with `hideLockIcon`; either silence wins. FTB Quests calls this show_lock_icons."
         },
+        "disableCanvasLod": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the book's chapters draw without the zoom tiers unless a chapter says otherwise: icons, rings, titles and badges at any zoom. A chapter opts out for itself with its own `disableCanvasLod` (absent defers here; present `false` keeps the tiers). FTB Quests has no tiers, so the migration tool writes `true`; Tenet's own absent is tiered."
+        },
         "hideExcludedQuests": {
           "type": "boolean",
           "default": false,

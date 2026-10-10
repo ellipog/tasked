@@ -581,6 +581,25 @@ class FtbMappingTest {
     }
 
     @Test
+    @DisplayName("chapter disableCanvasLod keeps its tristate, deferring to the book when absent")
+    void chapterDisableCanvasLod() {
+        // Absent is "no opinion" and the book's own flag decides; false forces the tiers
+        // back on under a tierless book. Collapsing absent into false would pin the book
+        // default the moment a chapter is written — the same trap the hide flags'
+        // tristate closes.
+        assertEquals(Optional.empty(),
+                chapter("{\"id\": \"c\", \"title\": \"C\"}").rules().disableCanvasLod(),
+                "absent defers, which is every file written before the field");
+        assertEquals(Optional.of(true),
+                chapter("{\"id\": \"c\", \"title\": \"C\", \"disableCanvasLod\": true}")
+                        .rules().disableCanvasLod());
+        assertEquals(Optional.of(false),
+                chapter("{\"id\": \"c\", \"title\": \"C\", \"disableCanvasLod\": false}")
+                        .rules().disableCanvasLod(),
+                "an explicit false tiers under a tierless book");
+    }
+
+    @Test
     @DisplayName("tags decode on every quest object, defaulting to none (T30)")
     void tagsOnEveryObject() {
         assertTrue(quest("{\"id\": \"a\", \"title\": \"A\"}").tags().isEmpty());

@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -289,7 +290,7 @@ class QuestSyncTest {
         QuestIndex index = twoQuests();
         String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
         for (String key : List.of("\"showLockIcons\"", "\"hideExcludedQuests\"", "\"pauseGame\"",
-                "\"disableGui\"", "\"lockMessage\"")) {
+                "\"disableGui\"", "\"lockMessage\"", "\"disableCanvasLod\"")) {
             assertFalse(json.contains(key), "a defaulting pack sends no " + key);
         }
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
@@ -297,6 +298,7 @@ class QuestSyncTest {
         assertFalse(ClientQuestCache.hideExcludedQuests(), "absent hides nothing");
         assertFalse(ClientQuestCache.pauseGame(), "absent keeps the world ticking");
         assertFalse(ClientQuestCache.guiDisabled(), "absent opens the book");
+        assertFalse(ClientQuestCache.bookLodDisabled(), "absent tiers the canvas");
         assertTrue(ClientQuestCache.lockMessage().isEmpty(), "absent keeps the client's own word");
 
         // And a server that sets them is read the same way: the root carries the keys, and the
@@ -309,12 +311,14 @@ class QuestSyncTest {
         root.addProperty("pauseGame", true);
         root.addProperty("disableGui", true);
         root.addProperty("lockMessage", "Sealed");
+        root.addProperty("disableCanvasLod", true);
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
                 root.toString().getBytes(StandardCharsets.UTF_8));
         assertTrue(ClientQuestCache.showLockIcons(), "the file shows every mark");
         assertTrue(ClientQuestCache.hideExcludedQuests(), "the file hides the shut-out");
         assertTrue(ClientQuestCache.pauseGame(), "the file stills the world");
         assertTrue(ClientQuestCache.guiDisabled(), "the file closes the book");
+        assertTrue(ClientQuestCache.bookLodDisabled(), "the file tiers nothing");
         assertEquals("Sealed", ClientQuestCache.lockMessage(), "the author's own locked word");
     }
 
@@ -2026,6 +2030,60 @@ class QuestSyncTest {
                     "and the reader holds it for the visibility rule");
             send(plain);
             assertFalse(ClientQuestCache.chapters().get(0).alwaysInvisible());
+        }
+
+        @Test
+        @DisplayName("a chapter's LOD answer travels when set either way, and absence defers")
+        void chapterLodTravels() {
+            // Unlike the sparse-only-true flags above: absence is "defer to the book", so an
+            // explicit false must cross too — it is how a chapter keeps its tiers under a
+            // tierless book, and sparse-only-true could not say it.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapters(
+                    Fixtures.chapterWith("tierless", "\"disableCanvasLod\": true,",
+                            q("a").build()),
+                    Fixtures.chapterWith("tiered", "\"disableCanvasLod\": false,",
+                            q("b").build()),
+                    Fixtures.chapterWith("quiet", "", q("c").build())));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            Map<String, JsonObject> chapters = new java.util.HashMap<>();
+            for (var element : root.getAsJsonArray("chapters")) {
+                JsonObject chapter = element.getAsJsonObject();
+                chapters.put(chapter.get("id").getAsString(), chapter);
+            }
+            assertTrue(chapters.get("tierless").get("disableCanvasLod").getAsBoolean());
+            assertTrue(chapters.get("tiered").has("disableCanvasLod"),
+                    "an explicit false crosses: it overrides the book");
+            assertFalse(chapters.get("tiered").get("disableCanvasLod").getAsBoolean());
+            assertFalse(chapters.get("quiet").has("disableCanvasLod"),
+                    "absence is the ordinary case, and means defer");
+
+            // The book says tierless: the explicit chapter answers stand, the quiet one follows.
+            root.addProperty("disableCanvasLod", true);
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                    root.toString().getBytes(StandardCharsets.UTF_8));
+            assertTrue(ClientQuestCache.bookLodDisabled(), "the reader holds the book's answer");
+            assertTrue(ClientQuestCache.lodDisabledFor("tierless"));
+            assertFalse(ClientQuestCache.lodDisabledFor("tiered"),
+                    "an explicit false wins over a tierless book");
+            assertTrue(ClientQuestCache.lodDisabledFor("quiet"), "silence defers to the book");
+            assertTrue(ClientQuestCache.lodDisabledFor(null), "no chapter reads as the book");
+            assertTrue(ClientQuestCache.lodDisabledFor("unknown"), "and so does an unknown one");
+            for (var entry : ClientQuestCache.chapters()) {
+                if (entry.id().equals("quiet")) {
+                    assertNull(entry.lodDisabled(), "the record keeps absent distinct from false");
+                }
+            }
+
+            // And a defaulting pack tiers everywhere, as before.
+            QuestIndex plain = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+            String plainJson = new String(QuestSync.treeAsJson(plain), StandardCharsets.UTF_8);
+            assertFalse(plainJson.contains("\"disableCanvasLod\""),
+                    "a defaulting pack sends no such key");
+            send(plain);
+            assertFalse(ClientQuestCache.bookLodDisabled(), "absent tiers");
+            assertFalse(ClientQuestCache.lodDisabledFor("chapter"), "at the book and the chapter");
         }
 
         @Test

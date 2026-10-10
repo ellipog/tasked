@@ -160,6 +160,18 @@ public record ChapterRules(
          */
         boolean alwaysInvisible,
         /**
+         * Whether this chapter's canvas draws without the zoom tiers: icons, rings, titles
+         * and badges at any zoom.
+         *
+         * <p>An {@link Optional} rather than a boolean, because absence defers to the book's
+         * own {@code disableCanvasLod} — the setting this answers per chapter. Present
+         * {@code true} draws everything always; present {@code false} keeps the tiers even
+         * when the book disables them, which is the one direction a plain boolean could not
+         * say. Every file written before this field existed says nothing, and nothing
+         * reads as the book's answer.
+         */
+        Optional<Boolean> disableCanvasLod,
+        /**
          * Words this chapter answers to in lookups by tag.
          *
          * <p>FTB Quests' {@code tags}, present on every object. Each tag is
@@ -171,7 +183,8 @@ public record ChapterRules(
 
     /** A chapter with no gate, no declared completion, no hiding and no defaults for its quests. */
     public static final ChapterRules DEFAULT = new ChapterRules(List.of(), PrerequisiteMode.ALL_COMPLETED,
-            0, List.of(), false, false, false, false, 0, Optional.empty(), false, false, List.of());
+            0, List.of(), false, false, false, false, 0, Optional.empty(), false, false, Optional.empty(),
+            List.of());
 
     /**
      * The bounds of {@link #minRequired}.
@@ -188,7 +201,7 @@ public record ChapterRules(
     public static final Set<String> FIELDS = Set.of("dependsOn", "prerequisiteMode", "minRequired",
             "completesWhen", "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
             "defaultHideUntilDependenciesVisible", "defaultFlexibleProgress", "defaultMinWidth",
-            "autofocus", "defaultSequentialTasks", "alwaysInvisible", "tags");
+            "autofocus", "defaultSequentialTasks", "alwaysInvisible", "disableCanvasLod", "tags");
 
     /** How many of {@link #dependsOn} must be satisfied. */
     public int requiredCount() {
@@ -235,6 +248,9 @@ public record ChapterRules(
                     .forGetter(ChapterRules::defaultSequentialTasks),
             Codec.BOOL.optionalFieldOf("alwaysInvisible", false)
                     .forGetter(ChapterRules::alwaysInvisible),
+            // Absent defers to the book's own flag, so this is the bare optional rather than a
+            // defaulted one: only a present value — true or false — crosses into the record.
+            Codec.BOOL.optionalFieldOf("disableCanvasLod").forGetter(ChapterRules::disableCanvasLod),
             Codec.STRING.listOf().optionalFieldOf("tags", List.of())
                     .forGetter(ChapterRules::tags)
     ).apply(instance, ChapterRules::new));

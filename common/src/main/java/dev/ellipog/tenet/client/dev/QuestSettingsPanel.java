@@ -190,7 +190,7 @@ public final class QuestSettingsPanel {
         // not draw -- the exact kind of preview that drifts from the thing it previews.
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(drawn, shape, view.geometry(), view.icon(),
                 view.textureIcon(), view.spriteIcon() == null ? "" : view.spriteIcon(), iconScale,
-                ArmatureTheme.nodeEdgeAvailable(), 0, 0));
+                false, ArmatureTheme.nodeEdgeAvailable(), 0, 0));
 
         if (view.showTitle() && !view.title().isEmpty()) {
             QuestNodeArt.caption(r, x, y, drawn, view.title(), pane.x(), pane.right(),

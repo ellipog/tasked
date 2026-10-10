@@ -85,13 +85,16 @@ public final class QuestLinkArt {
      * @param ring  the hover or selection ring's colour, or 0 for none. Links are never flashed — a
      *              press opens the target rather than choosing the marker — so the caller passes a hover
      *              ring, a selection ring, or nothing.
+     * @param alwaysIcons whether the marker draws its icon whatever the box measures: the
+     *              chapter's LOD answer, like a node's — a marker is a node where the drawing
+     *              is concerned, so it tiers with them.
      */
     public static void draw(Frame frame, Slot slot, ItemStack icon, String texture, String sprite,
-                            QuestState state, int ring) {
+                            QuestState state, int ring, boolean alwaysIcons) {
         QuestNodeArt.draw(frame.renderer(), slot.box().left(), slot.box().top(),
                 new QuestNodeArt.Look(slot.box().width(), slot.link().shape(), slot.geometry(), icon,
                         texture, sprite,
-                        dev.ellipog.tenet.quest.QuestLayout.DEFAULT_ICON_SCALE,
+                        dev.ellipog.tenet.quest.QuestLayout.DEFAULT_ICON_SCALE, alwaysIcons,
                         QuestNodeArt.edgeFor(state), ring, QuestNodeArt.washFor(state)));
     }
 

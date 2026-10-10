@@ -21,7 +21,7 @@ import java.util.Set;
 public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQuests, boolean pauseGame,
                                  boolean disableGui, boolean dropBookOnDeath, double gridScale,
                                  String lockMessage, int emergencyItemsCooldown,
-                                 List<ItemRef> emergencyItems) {
+                                 List<ItemRef> emergencyItems, boolean disableCanvasLod) {
 
     /**
      * The bounds of {@code gridScale}, taken from FTB Quests' own editor (1/32 to 8).
@@ -34,12 +34,12 @@ public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQues
 
     /** A file that says nothing about how it behaves: hidden locks, no hiding, no pausing. */
     public static final QuestSettingsExtra DEFAULT = new QuestSettingsExtra(false, false, false, false,
-            false, 0.5, "", 300, List.of());
+            false, 0.5, "", 300, List.of(), false);
 
     /** The field names this contributes, for the validator to allow in the settings block. */
     public static final Set<String> FIELDS = Set.of("showLockIcons", "hideExcludedQuests", "pauseGame",
             "disableGui", "dropBookOnDeath", "gridScale", "lockMessage", "emergencyItemsCooldown",
-            "emergencyItems");
+            "emergencyItems", "disableCanvasLod");
 
     public static final MapCodec<QuestSettingsExtra> MAP_CODEC = RecordCodecBuilder.mapCodec(
             instance -> instance.group(
@@ -100,7 +100,16 @@ public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQues
                     // answers that there is nothing to grant, which is what every pack that predates this
                     // field gets.
                     ItemRef.CODEC.listOf().optionalFieldOf("emergencyItems", List.of())
-                            .forGetter(QuestSettingsExtra::emergencyItems)
+                            .forGetter(QuestSettingsExtra::emergencyItems),
+                    // Whether the canvas draws every chapter without its zoom tiers: icons, rings,
+                    // titles and badges at any zoom. FTB Quests has no tiers — it draws everything
+                    // always — so the migration tool writes an explicit `true`, and Tenet's own
+                    // absent is tiered: LOD unless a pack asks out of it. A chapter opts out for
+                    // itself with its own flag; either silence defers. Read by the client, so it
+                    // travels on the tree (sparse: only `true` crosses, because that is the
+                    // unusual answer).
+                    Codec.BOOL.optionalFieldOf("disableCanvasLod", false)
+                            .forGetter(QuestSettingsExtra::disableCanvasLod)
             ).apply(instance, QuestSettingsExtra::new));
 
     public static final Codec<QuestSettingsExtra> CODEC = MAP_CODEC.codec();

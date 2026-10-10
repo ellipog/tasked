@@ -64,9 +64,13 @@ class QuestSettingsTest {
         assertEquals("", defaults.lockMessage());
         assertEquals(300, defaults.emergencyItemsCooldown());
         assertTrue(defaults.emergencyItems().isEmpty());
+        assertFalse(defaults.disableCanvasLod(), "tiered until the pack asks out of it");
 
         QuestSettings read = read("{}");
         assertFalse(read.showLockIcons(), "absent hides rather than refusing");
+        assertFalse(read.disableCanvasLod(), "absent tiers rather than refusing");
+        assertTrue(read("{ \"disableCanvasLod\": true }").disableCanvasLod(),
+                "present true draws everything always");
         assertEquals(defaults.emergencyItemsCooldown(), read.emergencyItemsCooldown());
     }
 
@@ -75,7 +79,7 @@ class QuestSettingsTest {
     void behaviourFieldsAreDeclared() {
         for (String field : new String[] {"showLockIcons", "hideExcludedQuests", "pauseGame",
                 "disableGui", "dropBookOnDeath", "gridScale", "lockMessage",
-                "emergencyItemsCooldown", "emergencyItems"}) {
+                "emergencyItemsCooldown", "emergencyItems", "disableCanvasLod"}) {
             assertTrue(QuestSettings.FIELDS.contains(field),
                     "or the schema comparison names " + field + " as undocumented");
             assertTrue(QuestSettingsExtra.FIELDS.contains(field),

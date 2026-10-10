@@ -767,6 +767,10 @@
           "default": false,
           "description": "Whether this chapter is withheld from every reader, whatever its gate says. Beside hideUntilDependenciesComplete because they are the pair an author will confuse: that one withholds the row until the gate is met, this one withholds it always. The gate itself is unaffected. FTB Quests calls this always_invisible."
         },
+        "disableCanvasLod": {
+          "type": "boolean",
+          "description": "Whether this chapter's canvas draws without the zoom tiers: icons, rings, titles and badges at any zoom. Absent defers to the book's own flag; present `true` draws everything always, present `false` keeps the tiers even when the book disables them."
+        },
         "defaultHideUntilDependenciesComplete": {
           "type": "boolean",
           "default": false,
