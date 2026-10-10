@@ -130,7 +130,7 @@ class TableEditorTest {
                 .get("weight").getAsInt());
 
         // And the edit is written by a save that validates first.
-        assertTrue(table.save(loaded()).ok());
+        assertTrue(table.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE).ok());
         assertEquals(9, RewardTable.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE,
                         JsonParser.parseString(Files.readString(root.resolve("reward_tables/ores.json"),
                                 StandardCharsets.UTF_8)))
@@ -158,7 +158,7 @@ class TableEditorTest {
         assertFalse(table.set("uid", null), "and there is no uid to clear");
         assertTrue(table.set("title", new com.google.gson.JsonPrimitive("  ")),
                 "clearing a title that exists is a change");
-        assertTrue(table.save(loaded()).ok());
+        assertTrue(table.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE).ok());
         String cleared = Files.readString(file, StandardCharsets.UTF_8);
 
         // A blank title is absent, so writing blank over the absent title is the same value again.
@@ -166,13 +166,13 @@ class TableEditorTest {
                 "blank over absent is not a change");
         assertFalse(table.set("entries.0.weight", new com.google.gson.JsonPrimitive(3)),
                 "and the weight is still 3");
-        assertTrue(table.save(loaded()).ok());
+        assertTrue(table.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE).ok());
         assertEquals(cleared, Files.readString(file, StandardCharsets.UTF_8),
                 "a refused no-op writes nothing at all");
 
         // And it takes no history step: the next undo must reach the last real edit, not a phantom one.
         assertTrue(table.set("entries.0.weight", new com.google.gson.JsonPrimitive(4)));
-        assertTrue(table.save(loaded()).ok());
+        assertTrue(table.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE).ok());
         assertNotEquals(cleared, Files.readString(file, StandardCharsets.UTF_8),
                 "a real edit does write");
         assertTrue(table.undo());
@@ -221,7 +221,7 @@ class TableEditorTest {
         assertTrue(table.insert(0, JsonParser.parseString("""
                 { "weight": 1, "reward": { "type": "tenet:random", "table": "other" } }""")
                 .getAsJsonObject()));
-        QuestEditor.SaveResult saved = table.save(loaded);
+        QuestEditor.SaveResult saved = table.save(loaded, com.mojang.serialization.JsonOps.INSTANCE);
 
         assertFalse(saved.ok(), "the edit would make ores -> other -> ores");
         assertTrue(String.join("\n", saved.messages()).contains("circular table reference"),
@@ -254,7 +254,7 @@ class TableEditorTest {
         TableEditor bare = named();
         assertTrue(bare.insert(1, xp),
                 "the draft takes the raw reward, which is exactly why the refusal has to be explicit");
-        QuestEditor.SaveResult refused = bare.save(loaded());
+        QuestEditor.SaveResult refused = bare.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE);
         assertFalse(refused.ok(), "a reward is not an entry, and the save must say so");
         String refusal = String.join("\n", refused.messages());
         assertTrue(refusal.contains("unknown field"), "the refusal names the offending field: " + refusal);
@@ -262,7 +262,7 @@ class TableEditorTest {
 
         TableEditor wrapped = named();
         assertTrue(wrapped.insert(1, QuestPanelLayout.tableEntry(xp)));
-        QuestEditor.SaveResult saved = wrapped.save(loaded());
+        QuestEditor.SaveResult saved = wrapped.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE);
         assertTrue(saved.ok(), () -> "a wrapped reward is an entry and must save: " + saved.messages());
 
         // Written, not merely accepted: the symptom was that the press changed nothing on disk, so the
@@ -286,7 +286,7 @@ class TableEditorTest {
         assertTrue(table.set("entries.0.weight", new com.google.gson.JsonPrimitive(7)));
         assertEquals(7, table.root().getAsJsonArray("entries").get(0).getAsJsonObject()
                 .get("weight").getAsInt());
-        assertTrue(table.save(loaded()).ok());
+        assertTrue(table.save(loaded(), com.mojang.serialization.JsonOps.INSTANCE).ok());
 
         // The chapter's own save is what wrote it: the quest file on disk has the new weight.
         String written = Files.readString(
@@ -365,7 +365,7 @@ class TableEditorTest {
         ServerTables tables = new ServerTables(editors, () -> root, this::loaded,
                 () -> QuestIndex.build(List.of(), new dev.ellipog.armature.api.data.Problems()));
 
-        EditorOps.Applied applied = tables.apply(new TableOp.Set(TableAddress.of("nowhere"), "title",
+        EditorOps.Applied applied = apply(tables,new TableOp.Set(TableAddress.of("nowhere"), "title",
                 new com.google.gson.JsonPrimitive("x")));
 
         assertFalse(applied.ok());
@@ -376,6 +376,14 @@ class TableEditorTest {
     private ServerTables tables() {
         return new ServerTables(new ServerEditors(() -> root), () -> root, this::loaded,
                 () -> QuestIndex.build(List.of(), new dev.ellipog.armature.api.data.Problems()));
+    }
+
+    /**
+     * Applies with blind ops: these fixtures carry no registry-backed components, so plain JSON
+     * judges what the server's registries would. See the same helper in {@code EditorOpsTest}.
+     */
+    private static EditorOps.Applied apply(ServerTables tables, TableOp op) {
+        return tables.apply(op, com.mojang.serialization.JsonOps.INSTANCE);
     }
 
     @Test
@@ -391,13 +399,13 @@ class TableEditorTest {
         Path first = root.resolve("reward_tables/ores.json.deleted");
         String original = Files.readString(file, StandardCharsets.UTF_8);
 
-        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(apply(tables,new TableOp.Delete("ores")).ok());
         assertTrue(Files.isRegularFile(first), "the file is set aside rather than erased");
         assertEquals(original, Files.readString(first, StandardCharsets.UTF_8), "byte for byte");
 
         // A second table of the same name, deleted the same way.
         Files.writeString(file, TABLE, StandardCharsets.UTF_8);
-        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(apply(tables,new TableOp.Delete("ores")).ok());
 
         assertTrue(Files.isRegularFile(first), "the first copy is still there");
         assertEquals(original, Files.readString(first, StandardCharsets.UTF_8), "and untouched");
@@ -411,9 +419,9 @@ class TableEditorTest {
         ServerTables tables = tables();
         Path file = root.resolve("reward_tables/ores.json");
         String original = Files.readString(file, StandardCharsets.UTF_8);
-        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(apply(tables,new TableOp.Delete("ores")).ok());
 
-        EditorOps.Applied restored = tables.apply(new TableOp.Restore("reward_tables/ores.json.deleted"));
+        EditorOps.Applied restored = apply(tables,new TableOp.Restore("reward_tables/ores.json.deleted"));
 
         assertTrue(restored.ok(), restored.messages().toString());
         assertEquals(original, Files.readString(file, StandardCharsets.UTF_8), "byte for byte");
@@ -421,10 +429,10 @@ class TableEditorTest {
 
         // And the numbering is honoured: whichever copy is named is the one that comes back, under the
         // name the file had -- so a second delete is not a reason to lose the first copy.
-        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(apply(tables,new TableOp.Delete("ores")).ok());
         Files.writeString(file, TABLE, StandardCharsets.UTF_8);
-        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
-        assertTrue(tables.apply(new TableOp.Restore("reward_tables/ores.json.deleted.2")).ok());
+        assertTrue(apply(tables,new TableOp.Delete("ores")).ok());
+        assertTrue(apply(tables,new TableOp.Restore("reward_tables/ores.json.deleted.2")).ok());
         assertTrue(Files.isRegularFile(file), "the numbered copy comes back under its own name");
         assertTrue(Files.isRegularFile(root.resolve("reward_tables/ores.json.deleted")),
                 "and the first copy is untouched");
@@ -437,11 +445,11 @@ class TableEditorTest {
         // from a command, and a restore moves a file.
         ServerTables tables = tables();
 
-        assertFalse(tables.apply(new TableOp.Restore("../beside.json.deleted")).ok(),
+        assertFalse(apply(tables,new TableOp.Restore("../beside.json.deleted")).ok(),
                 "outside the root");
-        assertFalse(tables.apply(new TableOp.Restore("getting_started/first_steps/one.json")).ok(),
+        assertFalse(apply(tables,new TableOp.Restore("getting_started/first_steps/one.json")).ok(),
                 "a live file is not a tombstone");
-        assertFalse(tables.apply(new TableOp.Restore("reward_tables/nowhere.json.deleted")).ok(),
+        assertFalse(apply(tables,new TableOp.Restore("reward_tables/nowhere.json.deleted")).ok(),
                 "and a name that is not there is not a table");
         assertTrue(Files.isRegularFile(root.resolve("getting_started/first_steps/one.json")),
                 "and nothing was moved");
@@ -456,7 +464,8 @@ class TableEditorTest {
         // whatever the id happened to name.
         Path quest = root.resolve("getting_started/first_steps/one.json");
 
-        EditorOps.Applied applied = tables().apply(new TableOp.Delete("../getting_started/first_steps/one"));
+        EditorOps.Applied applied = tables().apply(new TableOp.Delete("../getting_started/first_steps/one"),
+                com.mojang.serialization.JsonOps.INSTANCE);
 
         assertFalse(applied.ok(), "a name is not a path");
         assertTrue(String.join("\n", applied.messages()).contains("no folders"),
@@ -474,14 +483,14 @@ class TableEditorTest {
         // editor -- which is why the containment rule judges the path and not the spelling.
         ServerTables tables = tables();
 
-        EditorOps.Applied made = tables.apply(new TableOp.Create("_draft",
+        EditorOps.Applied made = apply(tables,new TableOp.Create("_draft",
                 JsonParser.parseString("{ \"entries\": [] }").getAsJsonObject()));
         assertFalse(made.ok(), "a name the loader skips is not a table");
         assertFalse(Files.exists(root.resolve("reward_tables/_draft.json")), "and nothing was written");
 
         // The odd name that exists is editable, because the id is a name in the tables folder.
         Files.writeString(root.resolve("reward_tables/My Table.json"), TABLE, StandardCharsets.UTF_8);
-        assertTrue(tables.apply(new TableOp.Set(TableAddress.of("My Table"), "entries.0.weight",
+        assertTrue(apply(tables,new TableOp.Set(TableAddress.of("My Table"), "entries.0.weight",
                 new com.google.gson.JsonPrimitive(7))).ok(),
                 "an existing name is somebody's table, whatever it is spelled like");
     }

@@ -453,12 +453,16 @@ public final class TableEditor {
      *
      * @param loaded every named table the loader has, so a loop this edit would close is caught here
      *               rather than at the next reload — a single file cannot see one
+     * @param ops    the ops codecs decode with: the server's registry ops in production, so a save
+     *               judges exactly what a load judges (see {@code QuestEditor.save} for the fault
+     *               blind ops caused)
      */
-    public QuestEditor.SaveResult save(Map<String, RewardTable> loaded) {
+    public QuestEditor.SaveResult save(Map<String, RewardTable> loaded,
+                                       com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (chapter != null) {
             // The chapter's save is what validates an inline table: it validates every file in the
             // chapter, inline tables included, and writes none of them if any has an error.
-            return chapter.save();
+            return chapter.save(ops);
         }
         JsonFile file = file();
         if (file == null) {
@@ -473,7 +477,7 @@ public final class TableEditor {
         catch (JsonParseException | RuntimeException notJson) {
             return refused(name, "the editor wrote something that is not JSON: " + notJson.getMessage());
         }
-        QuestValidator.validateRewardTableDocument(document, problems);
+        QuestValidator.validateRewardTableDocument(document, problems, ops);
         reportClosedCycle(document, name, loaded, problems);
 
         List<DataProblem> errors = problems.all().stream()

@@ -58,23 +58,28 @@ use in the reference pack is `["village"]` on a quest.
 
 ### Icons
 
-An icon is one of three arms, named by its key:
+An icon is one of four arms, named by its key:
 
 ```json
 { "item": "minecraft:oak_log", "count": 1 }
 { "texture": "my_pack:textures/gui/emblem.png" }
+{ "sprite": "occultism:block/chalk_glyph/0" }
 { "entity": "minecraft:creeper" }
 ```
 
 An item is drawn as the item, with its count and data components. A texture is a file's path —
 `textures/` and `.png` included — drawn stretched into the icon's box; a path nothing holds draws
-the missing texture. An entity is drawn as its spawn egg where one exists; an entity with no egg
-draws the missing mark naming it. The item arm is the shape every file written before the union
-uses, so old files read unchanged.
+the missing texture. A sprite is an atlas region id, drawn from the atlas into the icon's box;
+a region nothing holds draws the missing mark. An entity is drawn as its spawn egg where one exists;
+an entity with no egg draws the missing mark naming it. The item arm is the shape every file written
+before the union uses, so old files read unchanged. Naming two arms warns, naming the winner and the ignored
+arms; only the winner draws.
 
-Texture and entity icons are drawn on quest nodes (and the links that mirror them), the quest
-card, sidebar rows, the book's header, and toasts. The in-game picker sets the
-item arm; texture and entity arms are written in the file until the picker learns them.
+Texture and sprite icons are drawn on quest nodes (and the links that mirror them), the quest
+card, task and reward rows, sidebar rows, the book's header, and toasts. The in-game picture
+picker sets any arm: its Item tab picks items, File picks pack textures with thumbnails, Sprite
+takes an atlas id with a live preview of exactly what the node will draw, and Entity searches
+mobs. Setting one arm clears the others.
 
 ## Writing a description
 
@@ -171,10 +176,11 @@ open. They may live in other files, and a reference that resolves to nothing is 
 
 ### Optional quests
 
-A quest with `"optional": true` does not gate the quests that depend on it: they count it as
-neither satisfied nor required, so it neither helps nor blocks them. That is the side quest — a
-branch the player may do, drawn with its dependency lines, that nothing waits for. `minRequired`
-counts non-optional dependencies only, and the card's "2 of 3 met" counts the same denominator the
+A quest with `"optional": true` is marked a side quest — a branch the player may do, drawn
+with its dependency lines. The flag is a marker, not a gate: an optional quest gates the
+quests that depend on it exactly like any other quest (that is FTB Quests' `optional`,
+whose only other effect is excusing the quest from chapter completion). `minRequired`
+counts every dependency, and the card's "2 of 3 met" counts the same denominator the
 engine enforces.
 
 ### Early progress
@@ -189,6 +195,11 @@ card shows the real counts, and the dependency lines show what is missing — an
 quest completes on the first tick after its gate opens. A submit or a kill that maxes the last
 task does not finish the gate's other quests in the same call; the next tick does that, once per
 team rather than once per node.
+
+While the gate is shut the quest still draws gated — padlock, dimmed node, `REQUIRES x of y`
+— although its state stays measurable rather than locked. An UNLOCKED reading is what made
+whole flexible chapters look open; FTB shows such quests locked, and the padlock is what
+tells a player measuring from a player who may claim.
 
 Do not confuse this with the chapter's `progressionMode`: that one chains a chapter's quest list
 in order (`flexible` there means "order means nothing", `linear` means the list is the road), and

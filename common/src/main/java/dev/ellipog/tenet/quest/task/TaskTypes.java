@@ -511,6 +511,9 @@ public final class TaskTypes {
             else if (icon instanceof dev.ellipog.tenet.quest.Icon.Texture texture) {
                 out = out.withAuthorTexture(texture.texture().toString());
             }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Sprite sprite) {
+                out = out.withAuthorSprite(sprite.sprite().toString());
+            }
             else if (icon instanceof dev.ellipog.tenet.quest.Icon.Entity entity) {
                 ItemRef egg = eggOf(entity.entity());
                 out = egg != null ? out.withAuthorItem(egg) : out;
@@ -524,8 +527,9 @@ public final class TaskTypes {
      *
      * <p>The {@code <path>_spawn_egg} convention, asked of the server's own registry: the display is
      * computed where the registries live, so the wire carries the picture rather than the question.
+     * Package-visible for the kill display, which wears the egg of its own target.
      */
-    private static ItemRef eggOf(net.minecraft.resources.ResourceLocation entity) {
+    static ItemRef eggOf(net.minecraft.resources.ResourceLocation entity) {
         net.minecraft.resources.ResourceLocation egg =
                 net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(entity.getNamespace(),
                         entity.getPath() + "_spawn_egg");

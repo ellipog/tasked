@@ -62,7 +62,7 @@ class QuestLinkArtTest {
 
     private static RecordingRenderer draw(QuestLinkArt.Slot slot, QuestState state, int ring) {
         RecordingRenderer r = RecordingRenderer.create();
-        QuestLinkArt.draw(frame(r), slot, null, "", state, ring);
+        QuestLinkArt.draw(frame(r), slot, null, "", "", state, ring);
         return r;
     }
 

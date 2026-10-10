@@ -181,7 +181,7 @@ public final class Tenet {
             TenetNetworking.sendRostersToAllParties(player.getServer());
             // A pending tree refresh must not wait for a tick that may never come -- this can be the
             // last player, and the reload is the server's own state, not only the broadcast.
-            flushTree(player.getServer());
+            flushTreeNow(player.getServer());
         });
 
         // The engine. Runs once per player tick, and dedupes internally -- see
@@ -251,15 +251,35 @@ public final class Tenet {
      * <p>Called from the player tick and from a player leaving. The flag is the whole of the
      * coalescing — see {@link TreeRefresh} — and this method only supplies the server the refresh
      * needs, which is what keeps the flag itself testable without one.
+     *
+     * <p>Cosmetic-only flushes wait out {@code TreeRefresh}'s quiet window first: two drags on
+     * nearby ticks cost one refresh and one broadcast instead of two, and a slow trickle still
+     * syncs inside the cap. Anything heavier flushes at once, and so does a player leaving (see
+     * {@link #flushTreeNow}) — stored progress may have moved there, and ticks may never come.
      */
     private static void flushTree(net.minecraft.server.MinecraftServer server) {
         if (server == null) {
             return;
         }
+        if (!TreeRefresh.due()) {
+            return;
+        }
         // Handed the touch rather than two runnables, and that is the fix rather than tidiness: the
         // version with two had already decided that a quest edit owes a full progress sync, for every
         // kind of quest edit there is. See TreeRefresh.Touch.
-        TreeRefresh.flush(touch -> TenetNetworking.refreshTree(server, touch));
+        TreeRefresh.flush((touch, chapters) -> TenetNetworking.refreshTree(server, touch, chapters));
+    }
+
+    /**
+     * The same, skipping the cosmetic quiet window: a player leaving takes their Invite row with
+     * them, and a pending refresh must not wait for a tick that may never come — this can be the
+     * last player, and the reload is the server's own state, not only the broadcast.
+     */
+    private static void flushTreeNow(net.minecraft.server.MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        TreeRefresh.flush((touch, chapters) -> TenetNetworking.refreshTree(server, touch, chapters));
     }
 
     /**

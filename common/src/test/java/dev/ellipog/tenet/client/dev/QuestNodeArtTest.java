@@ -164,7 +164,7 @@ class QuestNodeArtTest {
         void textureDrawsThroughTheBlit() {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
-                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", 0.75,
+                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", "", 0.75,
                     0xFF1069B4, 0, 0));
 
             assertEquals(1, r.textures().size(), "one blit, not an item: " + r.describe());
@@ -178,10 +178,58 @@ class QuestNodeArtTest {
         void unparseableTextureFallsBack() {
             RecordingRenderer r = new RecordingRenderer();
             QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
-                    QuestShape.ROUNDED.geometry(), null, "not a path :::", 0.75,
+                    QuestShape.ROUNDED.geometry(), null, "not a path :::", "", 0.75,
                     0xFF1069B4, 0, 0));
 
             assertTrue(r.textures().isEmpty(), "nothing unparseable reaches the blit: " + r.describe());
+        }
+
+        @Test
+        @DisplayName("a sprite icon draws from the atlas rather than the stack")
+        void spriteDrawsFromTheAtlas() {
+            RecordingRenderer r = new RecordingRenderer();
+            QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "", "occultism:block/chalk_glyph/0", 0.75,
+                    0xFF1069B4, 0, 0));
+
+            assertEquals(1, r.sprites().size(), "one atlas draw, not an item: " + r.describe());
+            assertEquals("occultism:block/chalk_glyph/0",
+                    r.sprites().get(0).sprite().toString(),
+                    "the draw names the authored region");
+        }
+
+        @Test
+        @DisplayName("a texture wins over a sprite when both arrive")
+        void textureWinsOverSprite() {
+            RecordingRenderer r = new RecordingRenderer();
+            QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png",
+                    "occultism:block/chalk_glyph/0", 0.75, 0xFF1069B4, 0, 0));
+
+            assertEquals(1, r.textures().size(), "the blit, not the atlas: " + r.describe());
+            assertTrue(r.sprites().isEmpty(), "one picture wins: " + r.describe());
+        }
+
+        @Test
+        @DisplayName("the welcome chapter's texture quests blit at played sizes")
+        void welcomeTexturesBlitAtPlayedSizes() {
+            // claiming_chunks (circle 72), creating_a_team (circle 72), useful_commands
+            // (rounded 72): file sizes times zoom 1.0, the canvas as opened.
+            String[] paths = {
+                    "ftbchunks:textures/waypoint_home.png",
+                    "ftbteams:textures/teams.png",
+                    "ftbteams:textures/settings.png" };
+            QuestShape[] shapes = { QuestShape.CIRCLE, QuestShape.CIRCLE, QuestShape.ROUNDED };
+            for (int i = 0; i < paths.length; i++) {
+                RecordingRenderer r = new RecordingRenderer();
+                QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(72, shapes[i],
+                        shapes[i].geometry(), null, paths[i], "", 1.0, 0xFF1069B4, 0, 0));
+
+                assertEquals(1, r.textures().size(),
+                        paths[i] + " must blit on its node: " + r.describe());
+                assertEquals(paths[i], r.textures().get(0).texture().toString(),
+                        "the blit names the authored path");
+            }
         }
     }
 

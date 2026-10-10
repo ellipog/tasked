@@ -752,11 +752,19 @@ public final class QuestSync {
                         .toLowerCase(java.util.Locale.ROOT));
         json.addProperty("minRequired", quest.minRequired());
         json.addProperty("maxCompletableDependents", quest.rules().maxCompletableDependents());
-        // Whether this quest gates its dependants. Sparse: absent means it does, which is every
-        // quest but the side branches — and the client needs it for the same counts the engine
-        // keeps, so the card's "2 of 3 met" and the engine's unlock cannot disagree.
+        // Whether this quest is marked a side quest. Sparse: absent means it is not, and the
+        // flag is a marker — an optional quest gates exactly like any other — which the client
+        // reads for its card.
         if (quest.rules().optional()) {
             json.addProperty("optional", true);
+        }
+        // Whether this quest measures before its gate opens: its own flag or its chapter's
+        // default, resolved here because the client holds no chapter record. Sparse: absent
+        // means strict, which is what every older server says. The client needs it so a
+        // flexible quest with unmet dependencies can draw gated while staying measurable —
+        // without it every such quest reads UNLOCKED and whole flexible chapters look open.
+        if (ProgressionEngine.isFlexible(quest, chapter)) {
+            json.addProperty("flexible", true);
         }
         // The reveal flags. Every one of them is a presentation decision the client makes against state
         // it already has -- dependency states, task progress -- so they travel as data and the client
@@ -909,6 +917,11 @@ public final class QuestSync {
         if (!display.textureIcon().isEmpty()) {
             json.addProperty("textureIcon", display.textureIcon());
         }
+        // The author's atlas sprite: the row draws it from the atlas rather than the stack.
+        // Only when set, like the texture arm beside it.
+        if (!display.spriteIcon().isEmpty()) {
+            json.addProperty("spriteIcon", display.spriteIcon());
+        }
         // The author's item picture, since version 21: the row draws it instead of the requirement,
         // and recipe lookups, viewer indexes and choice offers all read the requirement. Only when
         // set — absence means the type's own picture, which is every task a version-20 tree sent. A
@@ -999,6 +1012,11 @@ public final class QuestSync {
         // beside the payout rather than in it, like the task's own.
         if (!display.textureIcon().isEmpty()) {
             json.addProperty("textureIcon", display.textureIcon());
+        }
+        // The author's atlas sprite: the row draws it from the atlas rather than the stack.
+        // Only when set, like the texture arm beside it.
+        if (!display.spriteIcon().isEmpty()) {
+            json.addProperty("spriteIcon", display.spriteIcon());
         }
         // The author's item picture, since version 21: see the task's own keys above.
         display.picture().ifPresent(ref -> {

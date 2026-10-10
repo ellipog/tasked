@@ -42,6 +42,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("An edit, as an op")
 class EditorOpsTest {
 
+    /**
+     * Applies with blind ops: these fixtures carry no registry-backed components, so plain JSON
+     * judges what the server's registries would. Production always passes the server's own ops
+     * (see {@code TenetNetworking.serverOps}) — a test that used them would need a server.
+     */
+    private static EditorOps.Applied apply(QuestEditor editor, EditorOp op) {
+        return EditorOps.apply(editor, op, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
     private static final String MANIFEST = """
             {
               "$schema": "../../_schema/chapter.schema.json",
@@ -271,7 +280,7 @@ class EditorOpsTest {
     void aFieldIsWritten() throws IOException {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor,
+        EditorOps.Applied applied = apply(editor,
                 new EditorOp.SetField("one", "title", new JsonPrimitive("Renamed")));
 
         assertTrue(applied.ok(), () -> "refused: " + applied.messages());
@@ -289,18 +298,18 @@ class EditorOpsTest {
         // refused, correctly, the first time this test ran with `two` in it.
         JsonArray list = new JsonArray();
 
-        assertTrue(EditorOps.apply(editor,
+        assertTrue(apply(editor,
                 new EditorOp.SetField("one", "dependsOn", list)).ok());
-        assertTrue(EditorOps.apply(editor,
+        assertTrue(apply(editor,
                 new EditorOp.SetField("one", "x", new JsonPrimitive(96))).ok());
-        assertTrue(EditorOps.apply(editor,
+        assertTrue(apply(editor,
                 new EditorOp.SetField("one", "repeatable", new JsonPrimitive(true))).ok());
         assertTrue(editor.quest("one").has("dependsOn"), "written as an empty list, not left out");
         assertTrue(editor.quest("one").strings("dependsOn").isEmpty());
         assertEquals(96, editor.quest("one").number("x", -1), 0.0001);
         assertTrue(editor.quest("one").flag("repeatable", false));
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.SetField("one", "repeatable", JsonNull.INSTANCE)).ok());
+        assertTrue(apply(editor, new EditorOp.SetField("one", "repeatable", JsonNull.INSTANCE)).ok());
         assertFalse(editor.quest("one").has("repeatable"), "a null value removes the field rather than "
                 + "blanking it");
     }
@@ -324,7 +333,7 @@ class EditorOpsTest {
         mystery.addProperty("title", "Did it");
         mystery.addProperty("splines", 4);
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, mystery));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Insert("one", "tasks", 0, mystery));
 
         assertFalse(applied.ok(), "an unloadable chapter must not be written");
         assertFalse(applied.messages().isEmpty(), "and the reason has to be sayable");
@@ -342,7 +351,7 @@ class EditorOpsTest {
         // of -64,32. This asks the file instead, at a position no fixture uses.
         QuestEditor editor = open();
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.Move("two", 128, -64)).ok());
+        assertTrue(apply(editor, new EditorOp.Move("two", 128, -64)).ok());
 
         String written = file("two");
         assertTrue(written.contains("\"x\": 128"), () -> "x was: " + written);
@@ -354,7 +363,7 @@ class EditorOpsTest {
     void creating() {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Create(200, 40));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Create(200, 40));
 
         assertTrue(applied.ok(), () -> "refused: " + applied.messages());
         assertNotNull(applied.questId(), "the client has to be told which quest it just made");
@@ -368,7 +377,7 @@ class EditorOpsTest {
     void duplicating() {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Duplicate("one"));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Duplicate("one"));
 
         assertTrue(applied.ok());
         assertNotEquals("one", applied.questId());
@@ -380,7 +389,7 @@ class EditorOpsTest {
     void pasting() throws IOException {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Paste(pasteTree(), 96, 48));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Paste(pasteTree(), 96, 48));
 
         assertTrue(applied.ok(), () -> "refused: " + applied.messages());
         assertEquals("from_elsewhere", applied.questId(), "the id a paste landed under is reported");
@@ -391,7 +400,7 @@ class EditorOpsTest {
 
         // Pasting the same tree twice: the second gets a name of its own rather than a collision --
         // which is what makes pasting into the chapter a copy came from still land.
-        EditorOps.Applied again = EditorOps.apply(editor, new EditorOp.Paste(pasteTree(), 0, 0));
+        EditorOps.Applied again = apply(editor, new EditorOp.Paste(pasteTree(), 0, 0));
         assertTrue(again.ok(), () -> "refused: " + again.messages());
         assertEquals("from_elsewhere_2", again.questId());
     }
@@ -404,7 +413,7 @@ class EditorOpsTest {
         broken.addProperty("id", "broken");
         // No title: the loader requires one, and the validator is what says so.
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Paste(broken, 0, 0));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Paste(broken, 0, 0));
 
         assertFalse(applied.ok());
         assertFalse(applied.messages().isEmpty(), "the validator's own message is what a refusal carries");
@@ -418,9 +427,9 @@ class EditorOpsTest {
         QuestEditor editor = open();
         JsonObject task = TaskTypes.defaultTree(TaskTypes.ITEM.id()).orElseThrow();
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, task)).ok(),
+        assertTrue(apply(editor, new EditorOp.Insert("one", "tasks", 0, task)).ok(),
                 "a default item task validates as written");
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 1,
+        assertTrue(apply(editor, new EditorOp.Insert("one", "tasks", 1,
                 TaskTypes.defaultTree(TaskTypes.CHECKMARK.id()).orElseThrow())).ok());
 
         assertEquals("tenet:item", editor.quest("one").text("tasks.0.type", ""));
@@ -433,12 +442,12 @@ class EditorOpsTest {
     @DisplayName("a reward moves within its array, and the order is the order on disk")
     void movingAReward() {
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "rewards", 0,
+        assertTrue(apply(editor, new EditorOp.Insert("one", "rewards", 0,
                 RewardTypes.defaultTree(RewardTypes.ITEM.id()).orElseThrow())).ok());
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "rewards", 1,
+        assertTrue(apply(editor, new EditorOp.Insert("one", "rewards", 1,
                 RewardTypes.defaultTree(RewardTypes.XP.id()).orElseThrow())).ok());
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.MoveEntry("one", "rewards", 0, 1)).ok());
+        assertTrue(apply(editor, new EditorOp.MoveEntry("one", "rewards", 0, 1)).ok());
         assertEquals("tenet:xp", editor.quest("one").text("rewards.0.type", ""),
                 "the item reward moved behind the xp one");
         assertEquals("tenet:item", editor.quest("one").text("rewards.1.type", ""));
@@ -452,7 +461,7 @@ class EditorOpsTest {
         reordered.add("two.json");
         reordered.add("one.json");
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.SetChapter("quests", reordered)).ok(),
+        assertTrue(apply(editor, new EditorOp.SetChapter("quests", reordered)).ok(),
                 "a chapter's list is the manifest's array, and SetChapter is what reaches it");
         assertEquals(List.of("two", "one"), editor.questIds(),
                 "the manifest's order is the chapter's order, in memory and on disk");
@@ -469,7 +478,7 @@ class EditorOpsTest {
         JsonObject icon = new JsonObject();
         icon.addProperty("item", "minecraft:anvil");
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.SetGroup("icon", icon));
+        EditorOps.Applied applied = apply(editor, new EditorOp.SetGroup("icon", icon));
 
         assertTrue(applied.ok(), () -> "the op was refused: " + applied.messages());
         String group = Files.readString(root.resolve("getting_started").resolve("group.json"),
@@ -485,10 +494,10 @@ class EditorOpsTest {
         JsonObject task = new JsonObject();
         task.addProperty("type", "tenet:item");
         task.addProperty("item", "minecraft:oak_log");
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, task)).ok());
+        assertTrue(apply(editor, new EditorOp.Insert("one", "tasks", 0, task)).ok());
 
         String before = file("one");
-        assertFalse(EditorOps.apply(editor, new EditorOp.SetField("one", "tasks.0.item", null)).ok(),
+        assertFalse(apply(editor, new EditorOp.SetField("one", "tasks.0.item", null)).ok(),
                 "an item task with no item is a quest the loader drops, so the save must refuse it");
         assertEquals(before, file("one"), "a refused edit leaves the bytes exactly as they were");
     }
@@ -500,7 +509,7 @@ class EditorOpsTest {
         // at all: the icon is optional, the default applies when the whole object is absent, and the
         // clear removes the object rather than the leaf -- {"icon": {}} does not load either.
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.SetField("one", "icon", null)).ok(),
+        assertTrue(apply(editor, new EditorOp.SetField("one", "icon", null)).ok(),
                 "an absent icon falls back to the default, so this save must be allowed");
         assertFalse(file("one").contains("\"icon\""), "and the file no longer names one");
     }
@@ -509,13 +518,13 @@ class EditorOpsTest {
     @DisplayName("a removed entry is gone from the file, and an impossible index changes nothing")
     void removingAnEntry() {
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0,
+        assertTrue(apply(editor, new EditorOp.Insert("one", "tasks", 0,
                 TaskTypes.defaultTree(TaskTypes.ITEM.id()).orElseThrow())).ok());
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.Remove("one", "tasks", 0)).ok());
+        assertTrue(apply(editor, new EditorOp.Remove("one", "tasks", 0)).ok());
         assertNull(editor.quest("one").get("tasks.0"), "the list is empty again");
 
-        EditorOps.Applied refused = EditorOps.apply(editor, new EditorOp.Remove("one", "tasks", 3));
+        EditorOps.Applied refused = apply(editor, new EditorOp.Remove("one", "tasks", 3));
         assertFalse(refused.ok(), "removing what is not there is a refusal, not a silent success");
     }
 
@@ -529,7 +538,7 @@ class EditorOpsTest {
         icon.addProperty("item", "minecraft:diamond");
         icon.addProperty("count", 2);
 
-        assertTrue(EditorOps.apply(editor,
+        assertTrue(apply(editor,
                 new EditorOp.SetField("one", "icon", icon)).ok());
         assertEquals("minecraft:diamond", editor.quest("one").text("icon.item", ""));
         assertEquals(2, editor.quest("one").number("icon.count", 0), 0.0001,
@@ -541,7 +550,7 @@ class EditorOpsTest {
     void deleting() {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Delete("two"));
+        EditorOps.Applied applied = apply(editor, new EditorOp.Delete("two"));
 
         assertTrue(applied.ok());
         assertFalse(editor.questIds().contains("two"));
@@ -558,14 +567,14 @@ class EditorOpsTest {
         // lands on a name a removed copy holds; what is being pinned is the undo's own rename, which carried
         // REPLACE_EXISTING and destroyed whatever carried that name.
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.Create(10, 10)).ok());
+        assertTrue(apply(editor, new EditorOp.Create(10, 10)).ok());
         Path file = folder.resolve("quest.json");
         assertTrue(Files.isRegularFile(file), "the create wrote it");
 
         Path earlier = folder.resolve("quest.json.deleted");
         Files.writeString(earlier, "an earlier copy", StandardCharsets.UTF_8);
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.Undo()).ok(), "the create is undone");
+        assertTrue(apply(editor, new EditorOp.Undo()).ok(), "the create is undone");
 
         assertEquals("an earlier copy", Files.readString(earlier, StandardCharsets.UTF_8),
                 "and the copy that was already there was not overwritten by the undo");
@@ -580,7 +589,7 @@ class EditorOpsTest {
         // reported itself as accepted while the chapter stayed set aside. The author saw "undone"; only
         // the server log knew otherwise.
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("first_steps")).ok());
+        assertTrue(apply(editor, new EditorOp.DeleteChapter("first_steps")).ok());
         Path aside = root.resolve("getting_started").resolve("first_steps.deleted");
         assertTrue(Files.isDirectory(aside), "the folder is set aside, which is what the undo moves back");
 
@@ -590,7 +599,7 @@ class EditorOpsTest {
         Files.createDirectories(folder);
         Files.writeString(folder.resolve("in-the-way.txt"), "not a chapter", StandardCharsets.UTF_8);
 
-        EditorOps.Applied refused = EditorOps.apply(editor, new EditorOp.Undo());
+        EditorOps.Applied refused = apply(editor, new EditorOp.Undo());
 
         assertFalse(refused.ok(), "the chapter could not be put back, so the undo did not happen");
         assertTrue(refused.messages().get(0).contains("could not be put back"),
@@ -602,7 +611,7 @@ class EditorOpsTest {
         // the one that now works. Consuming the step would have made Ctrl+Z a key that did nothing twice.
         Files.delete(folder.resolve("in-the-way.txt"));
         Files.delete(folder);
-        EditorOps.Applied retried = EditorOps.apply(editor, new EditorOp.Undo());
+        EditorOps.Applied retried = apply(editor, new EditorOp.Undo());
 
         assertTrue(retried.ok(), () -> "the retry converged: " + retried.messages());
         assertTrue(Files.isRegularFile(folder.resolve("chapter.json")), "the chapter is back");
@@ -621,14 +630,14 @@ class EditorOpsTest {
         Files.writeString(folder.resolve("two.json.deleted"), "an earlier copy",
                 StandardCharsets.UTF_8);
 
-        EditorOps.Applied single = EditorOps.apply(editor, new EditorOp.Delete("two"));
+        EditorOps.Applied single = apply(editor, new EditorOp.Delete("two"));
         assertFalse(single.ok());
         assertTrue(single.messages().get(0).contains("two.json.deleted"),
                 () -> "the sentence names the copy that is in the way: " + single.messages());
 
         // And as one element of a gesture, which is how the key reaches it: the batch is abandoned whole
         // and the element's sentence is what the author reads.
-        EditorOps.Applied batch = EditorOps.apply(editor, EditorOps.batch(List.of(
+        EditorOps.Applied batch = apply(editor, EditorOps.batch(List.of(
                 new EditorOp.Delete("one"), new EditorOp.Delete("two"))));
 
         assertFalse(batch.ok(), "one element refusing abandons the gesture");
@@ -645,10 +654,10 @@ class EditorOpsTest {
     @DisplayName("undo through an op puts a field back, on the disk as well as in memory")
     void undoing() throws IOException {
         QuestEditor editor = open();
-        assertTrue(EditorOps.apply(editor, new EditorOp.SetField("one", "title", new JsonPrimitive("Renamed")))
+        assertTrue(apply(editor, new EditorOp.SetField("one", "title", new JsonPrimitive("Renamed")))
                 .ok());
 
-        EditorOps.Applied undone = EditorOps.apply(editor, new EditorOp.Undo());
+        EditorOps.Applied undone = apply(editor, new EditorOp.Undo());
 
         assertTrue(undone.ok(), () -> "refused: " + undone.messages());
         assertEquals("One", editor.quest("one").text("title", ""));
@@ -660,7 +669,7 @@ class EditorOpsTest {
     void noSuchQuest() {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.SetField("three", "title",
+        EditorOps.Applied applied = apply(editor, new EditorOp.SetField("three", "title",
                 new JsonPrimitive("Ghost")));
 
         assertFalse(applied.ok());
@@ -677,7 +686,7 @@ class EditorOpsTest {
     void aBatchIsOneStep() throws IOException {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(List.of(
+        EditorOps.Applied applied = apply(editor, EditorOps.batch(List.of(
                 new EditorOp.Duplicate("one"), new EditorOp.Duplicate("two"),
                 new EditorOp.Duplicate("one"))));
 
@@ -703,7 +712,7 @@ class EditorOpsTest {
     void aBatchOfDeletes() {
         QuestEditor editor = open();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(
+        EditorOps.Applied applied = apply(editor, EditorOps.batch(
                 List.of(new EditorOp.Delete("one"), new EditorOp.Delete("two"))));
 
         assertTrue(applied.ok(), () -> "refused: " + applied.messages());
@@ -721,7 +730,7 @@ class EditorOpsTest {
 
         // The second element cannot apply -- there is no quest called "ghost" -- and the honest answer is
         // none of them rather than the first one and a mystery.
-        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(List.of(
+        EditorOps.Applied applied = apply(editor, EditorOps.batch(List.of(
                 new EditorOp.Duplicate("one"), new EditorOp.Duplicate("ghost"))));
 
         assertFalse(applied.ok(), "a batch holding an edit that cannot apply is refused");
@@ -743,14 +752,14 @@ class EditorOpsTest {
                 new EditorOp.SetIndex("bookTitle", new JsonPrimitive("The Orrery Ledger")),
                 new EditorOp.Batch(List.of(new EditorOp.Delete("two"))),
                 new EditorOp.MoveGroup("getting_started", 0))) {
-            EditorOps.Applied applied = EditorOps.apply(editor,
+            EditorOps.Applied applied = apply(editor,
                     EditorOps.batch(List.of(new EditorOp.Duplicate("one"), wrong)));
 
             assertFalse(applied.ok(), () -> "a batch holding " + wrong + " must be refused");
             assertFalse(applied.messages().isEmpty(), "with a sentence: " + wrong);
         }
 
-        assertFalse(EditorOps.apply(editor, new EditorOp.Batch(List.of())).ok(),
+        assertFalse(apply(editor, new EditorOp.Batch(List.of())).ok(),
                 "an empty batch is a refusal, not a silent success");
         assertEquals(before, file("one"), "and nothing was written while refusing");
         assertEquals(List.of("one", "two"), editor.questIds());

@@ -36,25 +36,25 @@ class BookRowTargetsTest {
 
     private static ClientQuestCache.TaskEntry task(ItemStack item, String itemId, String tagId) {
         return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, item, 1, false, false, false, false,
-                "tenet:item", "", "", "", itemId, "", "", 0, tagId, List.of(), false, "", ItemStack.EMPTY,
+                "tenet:item", "", "", "", itemId, "", "", 0, tagId, List.of(), false, "", "", ItemStack.EMPTY,
                 "");
     }
 
     private static ClientQuestCache.TaskEntry picturedTask(ItemStack picture) {
         return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, ItemStack.EMPTY, 1, false, false, false,
-                false, "tenet:checkmark", "", "", "", "", "", "", 0, "", List.of(), false, "", picture,
+                false, "tenet:checkmark", "", "", "", "", "", "", 0, "", List.of(), false, "", "", picture,
                 "");
     }
 
     private static ClientQuestCache.TaskEntry picturedTagTask(String tagId, ItemStack picture) {
         return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, ItemStack.EMPTY, 1, false, false, false,
-                false, "tenet:item_tag", "", "", "", "", "", "", 0, tagId, List.of(), false, "", picture,
+                false, "tenet:item_tag", "", "", "", "", "", "", 0, tagId, List.of(), false, "", "", picture,
                 "");
     }
 
     private static ClientQuestCache.RewardEntry reward(ItemStack item, String itemId) {
         return new ClientQuestCache.RewardEntry(ItemStack.EMPTY, item, 1, "tenet:item", "", "", "",
-                itemId, "", false, false, List.of(), false, "", ItemStack.EMPTY);
+                itemId, "", false, false, List.of(), false, "", "", ItemStack.EMPTY);
     }
 
     @Test

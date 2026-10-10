@@ -147,36 +147,41 @@ class DependencyProgressTest {
     }
 
     @Test
-    @DisplayName("an optional dependency is counted on neither side")
-    void optionalDependenciesAreExcluded() {
-        // The client's half of the engine's rule: a quest flagged optional neither helps nor blocks
-        // its dependants, so the card's "2 of 3 met" uses the same denominator the unlock does. The
-        // line itself is still drawn, and satisfies still answers per edge — optionality is about
-        // the rule, not about whether the line exists.
+    @DisplayName("an optional dependency counts like any other")
+    void optionalDependenciesCount() {
+        // The client's half of the engine's rule: FTB parity means an optional edge gates
+        // exactly like a mandatory one, so the card's "2 of 3 met" uses the same denominator
+        // the unlock does. The line itself is still drawn, and satisfies still answers per
+        // edge.
         DependencyProgress progress = new DependencyProgress(PrerequisiteMode.ALL_COMPLETED, 0,
-                List.of("main", "side"), java.util.Set.of("side"));
-        assertEquals(1, progress.required());
-        assertEquals(1, progress.counted());
+                List.of("main", "side"));
+        assertEquals(2, progress.required());
+        assertEquals(2, progress.counted());
 
         Function<String, QuestState> mainDone = states(Map.of("main", QuestState.COMPLETED));
         assertEquals(1, progress.satisfied(mainDone));
-        assertTrue(progress.met(mainDone));
-        assertEquals(List.of(), progress.waitingFor(mainDone));
+        assertFalse(progress.met(mainDone));
+        assertEquals(List.of("side"), progress.waitingFor(mainDone));
 
         Function<String, QuestState> sideDone = states(Map.of("side", QuestState.COMPLETED));
-        assertEquals(0, progress.satisfied(sideDone), "a completed optional satisfies nothing");
+        assertEquals(1, progress.satisfied(sideDone), "a completed optional satisfies like any edge");
         assertFalse(progress.met(sideDone));
         assertEquals(List.of("main"), progress.waitingFor(sideDone));
 
-        // ...but its edge still answers, because the line is still drawn.
+        Function<String, QuestState> bothDone = states(
+                Map.of("main", QuestState.COMPLETED, "side", QuestState.COMPLETED));
+        assertTrue(progress.met(bothDone));
+        assertEquals(List.of(), progress.waitingFor(bothDone));
+
+        // ...and every edge still answers, because the line is still drawn.
         assertTrue(progress.satisfies("side", sideDone));
     }
 
     @Test
-    @DisplayName("without optionals the four-argument form reads exactly as the three did")
-    void noOptionalsIsUnchanged() {
+    @DisplayName("the three-argument form counts every edge")
+    void threeArgumentsCountEverything() {
         DependencyProgress progress = new DependencyProgress(PrerequisiteMode.ALL_COMPLETED, 0,
-                List.of("a", "b"), java.util.Set.of());
+                List.of("a", "b"));
         assertEquals(2, progress.required());
         assertEquals(2, progress.counted());
     }

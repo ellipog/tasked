@@ -29,14 +29,16 @@ import java.util.Optional;
  * @param textureIcon   the texture path when the author overrode the picture with a texture, and
  *                      empty otherwise. See {@link dev.ellipog.tenet.quest.task.TaskDisplay} for why
  *                      an entity override arrives resolved to its egg.
+ * @param spriteIcon    the atlas region when the author overrode the picture with a sprite, and
+ *                      empty otherwise. Never beside a texture: one override at a time.
  * @param picture       the author's item picture when the author overrode the picture with an item
  *                      or an entity egg, and empty otherwise. Drawn instead of {@code item}; never
  *                      read for recipes or viewer indexes, which all read {@code item}.
  */
 public record RewardDisplay(Optional<ItemRef> item, String label, String labelFallback, String labelArg,
-                            int count, String textureIcon, Optional<ItemRef> picture) {
+                            int count, String textureIcon, String spriteIcon, Optional<ItemRef> picture) {
 
-    public static final RewardDisplay NONE = new RewardDisplay(Optional.empty(), "", "", "", 1, "", Optional.empty());
+    public static final RewardDisplay NONE = new RewardDisplay(Optional.empty(), "", "", "", 1, "", "", Optional.empty());
 
     public RewardDisplay {
         item = item == null ? Optional.empty() : item;
@@ -44,27 +46,28 @@ public record RewardDisplay(Optional<ItemRef> item, String label, String labelFa
         labelFallback = labelFallback == null ? "" : labelFallback;
         labelArg = labelArg == null ? "" : labelArg;
         textureIcon = textureIcon == null ? "" : textureIcon;
+        spriteIcon = spriteIcon == null ? "" : spriteIcon;
         picture = picture == null ? Optional.empty() : picture;
     }
 
     public static RewardDisplay ofItem(ItemRef item) {
-        return new RewardDisplay(Optional.of(item), "", "", "", Math.max(1, item.count()), "", Optional.empty());
+        return new RewardDisplay(Optional.of(item), "", "", "", Math.max(1, item.count()), "", "", Optional.empty());
     }
 
     /** A reward whose sentence counts something: the key is formatted with {@code count}. */
     public static RewardDisplay ofTranslatableText(String key, String fallback, int count) {
-        return new RewardDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "", Optional.empty());
+        return new RewardDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "", "", Optional.empty());
     }
 
     /** A reward whose sentence names something: the key is formatted with {@code labelArg}. */
     public static RewardDisplay ofTranslatableText(String key, String fallback, String labelArg, int count) {
-        return new RewardDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "", Optional.empty());
+        return new RewardDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "", "", Optional.empty());
     }
 
     /** This display wearing the author's words instead of the type's own sentence. */
     public RewardDisplay withAuthorTitle(dev.ellipog.tenet.quest.QuestText title) {
         return new RewardDisplay(item, title.value(), title.fallback().orElse(""), labelArg, count,
-                textureIcon, picture);
+                textureIcon, spriteIcon, picture);
     }
 
     /**
@@ -75,7 +78,7 @@ public record RewardDisplay(Optional<ItemRef> item, String label, String labelFa
      * picture, so a reward wearing a torch opened torch recipes instead of its own.
      */
     public RewardDisplay withAuthorItem(ItemRef ref) {
-        return new RewardDisplay(item, label, labelFallback, labelArg, count, "", Optional.of(ref));
+        return new RewardDisplay(item, label, labelFallback, labelArg, count, "", "", Optional.of(ref));
     }
 
     /**
@@ -86,6 +89,16 @@ public record RewardDisplay(Optional<ItemRef> item, String label, String labelFa
      * reward wearing a texture lost its recipes entirely.
      */
     public RewardDisplay withAuthorTexture(String path) {
-        return new RewardDisplay(item, label, labelFallback, labelArg, count, path, Optional.empty());
+        return new RewardDisplay(item, label, labelFallback, labelArg, count, path, "", Optional.empty());
+    }
+
+    /**
+     * This display wearing the author's atlas sprite alongside the type's own payout.
+     *
+     * <p>Like the texture arm: a picture, so the payout stays what it was, and the other
+     * picture arms go — one override at a time, or two pictures would claim one row.
+     */
+    public RewardDisplay withAuthorSprite(String id) {
+        return new RewardDisplay(item, label, labelFallback, labelArg, count, "", id, Optional.empty());
     }
 }

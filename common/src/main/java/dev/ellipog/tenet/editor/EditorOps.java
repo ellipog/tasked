@@ -382,13 +382,14 @@ public final class EditorOps {
     }
 
     /** Applies one op to a chapter, validating on the way: see this class's note. */
-    public static Applied apply(QuestEditor editor, EditorOp op) {
+    public static Applied apply(QuestEditor editor, EditorOp op,
+                                com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Objects.requireNonNull(editor, "editor");
         if (op == null) {
             return Applied.refused("that is not an edit this version knows");
         }
         try {
-            return applyOne(editor, op);
+            return applyOne(editor, op, ops);
         }
         catch (JsonFile.UnwritablePath unwritable) {
             // A path nothing can be written to refused before it changed anything, but the op pushed
@@ -414,12 +415,13 @@ public final class EditorOps {
      * Applying sixty-eight of seventy would leave the author to find the two that are missing, and the
      * Ctrl+Z they would then press reverts all sixty-eight regardless.
      */
-    private static Applied applyBatch(QuestEditor editor, EditorOp.Batch batch) {
-        List<EditorOp> ops = batch.ops();
-        if (ops.isEmpty()) {
+    private static Applied applyBatch(QuestEditor editor, EditorOp.Batch batch,
+                                      com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        List<EditorOp> elements = batch.ops();
+        if (elements.isEmpty()) {
             return Applied.refused("that batch holds no edits this version can apply");
         }
-        for (EditorOp op : ops) {
+        for (EditorOp op : elements) {
             if (!joinable(op)) {
                 return Applied.refused("a batch is one gesture's chapter edits, and " + describe(op)
                         + " is not one of them");
@@ -431,8 +433,8 @@ public final class EditorOps {
         Applied[] refusal = new Applied[1];
         int[] landed = new int[1];
         editor.group(() -> {
-            for (EditorOp op : ops) {
-                Applied applied = applyOne(editor, op, false);
+            for (EditorOp op : elements) {
+                Applied applied = applyOne(editor, op, false, ops);
                 if (!applied.ok()) {
                     refusal[0] = applied;
                     return;
@@ -449,12 +451,12 @@ public final class EditorOps {
             return new Applied(false, null, messages, null, null, List.of());
         }
 
-        QuestEditor.SaveResult saved = editor.save();
+        QuestEditor.SaveResult saved = editor.save(ops);
         if (!saved.ok()) {
             editor.abandon();
             return new Applied(false, null, saved.messages(), null, null, List.of());
         }
-        return new Applied(true, "", List.of(summary(ops)), null, null, List.of());
+        return new Applied(true, "", List.of(summary(elements)), null, null, List.of());
     }
 
     /**
@@ -675,6 +677,40 @@ public final class EditorOps {
     }
 
     /**
+     * The chapter a targeted refresh would re-read for this op, or empty when only a full reload
+     * answers it.
+     *
+     * <p>Chapter-scoped kinds name it: a move, a quest field, the chapter's own file, its elements
+     * and its links are all read from the payload chapter's editor, and the holds check in
+     * {@code ServerEditors} already guarantees a quest op's target lives there. A batch qualifies
+     * only when every element does — one group- or book-level write in it means the gesture
+     * reaches past the chapter. SetGroup and SetIndex never qualify: the group and the book are
+     * not read from any chapter, whichever chapter the payload names.
+     *
+     * <p>The touch still decides: this answer is only read when it is cosmetic, and anything
+     * heavier re-reads the whole tree whatever it says.
+     */
+    public static java.util.Optional<String> refreshChapter(EditorOp op, String payloadChapter) {
+        if (payloadChapter == null || payloadChapter.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        boolean scoped = switch (op) {
+            case EditorOp.Move ignored -> true;
+            case EditorOp.SetField ignored -> true;
+            case EditorOp.SetChapter ignored -> true;
+            case EditorOp.SetElement ignored -> true;
+            case EditorOp.SetLink ignored -> true;
+            case EditorOp.Batch batch -> batch.ops().stream().allMatch(element ->
+                    element instanceof EditorOp.Move || element instanceof EditorOp.SetField
+                            || element instanceof EditorOp.SetChapter
+                            || element instanceof EditorOp.SetElement
+                            || element instanceof EditorOp.SetLink);
+            default -> false;
+        };
+        return scoped ? java.util.Optional.of(payloadChapter) : java.util.Optional.empty();
+    }
+
+    /**
      * What one field's edit owes, from its path.
      *
      * <p>Two outcomes rather than three, deliberately: every path that is not display-only lands on
@@ -761,8 +797,9 @@ public final class EditorOps {
         return ops.size() == 1 ? ops.get(0) : new EditorOp.Batch(ops);
     }
 
-    private static Applied applyOne(QuestEditor editor, EditorOp op) {
-        return applyOne(editor, op, true);
+    private static Applied applyOne(QuestEditor editor, EditorOp op,
+                                    com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        return applyOne(editor, op, true, ops);
     }
 
     /**
@@ -774,56 +811,57 @@ public final class EditorOps {
      * it. Every case that is not a chapter mutation is unreachable with {@code save} false, because
      * {@link #joinable} refuses those before a batch is opened.
      */
-    private static Applied applyOne(QuestEditor editor, EditorOp op, boolean save) {
+    private static Applied applyOne(QuestEditor editor, EditorOp op, boolean save,
+                                    com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         return switch (op) {
             case EditorOp.SetField set ->
-                    finish(editor, op, editor.set(set.id(), set.path(), value(set.value())), null, save);
+                    finish(editor, op, editor.set(set.id(), set.path(), value(set.value())), null, save, ops);
             case EditorOp.Move move ->
-                    finish(editor, op, editor.move(move.id(), move.x(), move.y()), null, save);
+                    finish(editor, op, editor.move(move.id(), move.x(), move.y()), null, save, ops);
             case EditorOp.Create create -> {
                 String made = editor.create(create.x(), create.y());
-                yield finish(editor, op, made != null, made, save);
+                yield finish(editor, op, made != null, made, save, ops);
             }
             case EditorOp.Duplicate duplicate -> {
                 String made = editor.duplicate(duplicate.id());
-                yield finish(editor, op, made != null, made, save);
+                yield finish(editor, op, made != null, made, save, ops);
             }
             case EditorOp.Paste paste -> {
                 String made = paste.tree() == null
                         ? null : editor.paste(paste.tree(), paste.x(), paste.y());
-                yield finish(editor, op, made != null, made, save);
+                yield finish(editor, op, made != null, made, save, ops);
             }
             case EditorOp.Insert insert ->
                     finish(editor, op, editor.insert(insert.id(), insert.member(), insert.index(),
-                            insert.entry()), null, save);
+                            insert.entry()), null, save, ops);
             case EditorOp.Remove remove ->
                     finish(editor, op, editor.removeEntry(remove.id(), remove.member(),
-                            remove.index()), null, save);
+                            remove.index()), null, save, ops);
             case EditorOp.MoveEntry move ->
                     finish(editor, op, editor.moveEntry(move.id(), move.member(), move.from(),
-                            move.to()), null, save);
+                            move.to()), null, save, ops);
             case EditorOp.SetChapter set ->
-                    finish(editor, op, editor.setChapter(set.path(), value(set.value())), null, save);
+                    finish(editor, op, editor.setChapter(set.path(), value(set.value())), null, save, ops);
             // The three element edits, each against the chapter's own file like the chapter writes above --
             // an element has no file of its own, which is the whole of what makes them this shape.
             case EditorOp.InsertElement insert ->
-                    finish(editor, op, editor.insertElement(insert.index(), insert.tree()), null, save);
+                    finish(editor, op, editor.insertElement(insert.index(), insert.tree()), null, save, ops);
             case EditorOp.RemoveElement remove ->
-                    finish(editor, op, editor.removeElement(remove.element()), null, save);
+                    finish(editor, op, editor.removeElement(remove.element()), null, save, ops);
             case EditorOp.SetElement set ->
                     finish(editor, op, editor.setElement(set.element(), set.path(), value(set.value())),
-                            null, save);
+                            null, save, ops);
             // The three link edits, each against the chapter's own file like the element writes above --
             // a link has no file of its own, which is the whole of what makes them this shape.
             case EditorOp.InsertLink insert ->
-                    finish(editor, op, editor.insertLink(insert.index(), insert.tree()), null, save);
+                    finish(editor, op, editor.insertLink(insert.index(), insert.tree()), null, save, ops);
             case EditorOp.RemoveLink remove ->
-                    finish(editor, op, editor.removeLink(remove.link()), null, save);
+                    finish(editor, op, editor.removeLink(remove.link()), null, save, ops);
             case EditorOp.SetLink set ->
                     finish(editor, op, editor.setLink(set.link(), set.path(), value(set.value())),
-                            null, save);
+                            null, save, ops);
             case EditorOp.SetGroup set ->
-                    finish(editor, op, editor.setGroup(set.path(), value(set.value())), null, save);
+                    finish(editor, op, editor.setGroup(set.path(), value(set.value())), null, save, ops);
             // A root-level settings write: the file itself is what changes, like the structural kinds,
             // so it takes their path -- there is no chapter model to save and no meta to report.
             case EditorOp.SetIndex ignored -> structural(editor, op);
@@ -833,11 +871,11 @@ public final class EditorOps {
                 // they need three different things done about them. Flattened into the generic "that edit
                 // would change nothing", a bulk delete could do nothing at all and say nothing useful.
                 QuestEditor.Deletion deletion = editor.delete(delete.id());
-                yield finish(editor, op, deletion.ok(), null, save, deletion.refusal());
+                yield finish(editor, op, deletion.ok(), null, save, deletion.refusal(), ops);
             }
             // A batch is handled as a whole, and never as an element of itself: `joinable` refused that
             // before the group was opened.
-            case EditorOp.Batch batch -> applyBatch(editor, batch);
+            case EditorOp.Batch batch -> applyBatch(editor, batch, ops);
             // The structural kinds, in one line each: what they do depends only on the tree's root, not
             // on the chapter this op arrived at -- see `structureAt` and `applyWithoutSession`.
             case EditorOp.MoveChapter ignored -> structural(editor, op);
@@ -853,9 +891,11 @@ public final class EditorOps {
             // A restore is two operations wearing one name -- a folder is a shape change and a quest file
             // is this chapter's own model -- and which one it is is a fact about the disk. So it is asked
             // there rather than carried on the wire: the client is not the authority on the tree.
-            case EditorOp.RestoreRemoved restore -> restoreRemoved(editor, restore);
-            case EditorOp.Undo ignored -> history(editor, editor.undo(), "nothing to undo in this chapter");
-            case EditorOp.Redo ignored -> history(editor, editor.redo(), "nothing to redo in this chapter");
+            case EditorOp.RestoreRemoved restore -> restoreRemoved(editor, restore, ops);
+            case EditorOp.Undo ignored ->
+                    history(editor, editor.undo(), "nothing to undo in this chapter", ops);
+            case EditorOp.Redo ignored ->
+                    history(editor, editor.redo(), "nothing to redo in this chapter", ops);
         };
     }
 
@@ -958,7 +998,8 @@ public final class EditorOps {
      * this a set-aside thing under this root, and where is it" — one question with one answer, so a folder
      * and a file cannot be validated by two different rules that drift.
      */
-    private static Applied restoreRemoved(QuestEditor editor, EditorOp.RestoreRemoved restore) {
+    private static Applied restoreRemoved(QuestEditor editor, EditorOp.RestoreRemoved restore,
+                                          com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Path aside = QuestFiles.resolveRemoved(editor.treeRoot(), restore.path());
         if (aside == null) {
             return Applied.refused("\"" + restore.path() + "\" is not a removed file under the quest"
@@ -967,8 +1008,8 @@ public final class EditorOps {
         if (Files.isDirectory(aside)) {
             return structural(editor, restore);
         }
-        QuestEditor.Deletion restored = editor.restoreAside(aside);
-        return finish(editor, restore, restored.ok(), null, true, restored.refusal());
+        QuestEditor.Deletion restored = editor.restoreAside(aside, ops);
+        return finish(editor, restore, restored.ok(), null, true, restored.refusal(), ops);
     }
 
     /**
@@ -983,7 +1024,8 @@ public final class EditorOps {
      * back", and only the first is the author's fault or the author's business. Reporting the second as
      * the first is how a chapter left half reversed read as a key that had nothing to do.
      */
-    private static Applied history(QuestEditor editor, boolean changed, String nothing) {
+    private static Applied history(QuestEditor editor, boolean changed, String nothing,
+                                    com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         QuestStructure.Structure.Meta meta = editor.takeLastMeta();
         // Read before the `changed` branch, because a reversal that failed is the case this exists for:
         // `changed` is false for it -- nothing was put back -- and reporting "nothing to undo in this
@@ -1002,7 +1044,7 @@ public final class EditorOps {
             // A field history: the model was put back in memory, and the save is what makes the disk
             // agree with it -- exactly the path `finish` takes for every other op. A structural history
             // needs none: its steps wrote the files themselves, which is what they are for.
-            QuestEditor.SaveResult saved = editor.save();
+            QuestEditor.SaveResult saved = editor.save(ops);
             if (!saved.ok()) {
                 // Abandoned rather than undone: an undo that refuses must leave the history as it was
                 // found, and `undo` would leave the refused state on the redo trail. See `abandon`.
@@ -1023,8 +1065,9 @@ public final class EditorOps {
      * the caller is {@code applyBatch}, which saves once for the whole gesture; nothing else passes it.
      */
     private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId,
-                                  boolean save) {
-        return finish(editor, op, changed, madeId, save, null);
+                                  boolean save,
+                                  com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        return finish(editor, op, changed, madeId, save, null, ops);
     }
 
     /**
@@ -1035,7 +1078,8 @@ public final class EditorOps {
      * name the file. "That edit would change nothing" is true of all three and useful for none.
      */
     private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId,
-                                  boolean save, String refusal) {
+                                  boolean save, String refusal,
+                                  com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         String about = madeId != null ? madeId : op.quest();
         if (!changed) {
             return new Applied(false, about, List.of(refusal == null ? "that edit would change nothing"
@@ -1046,7 +1090,7 @@ public final class EditorOps {
             // it needs happens there, once, over the files the whole gesture produced.
             return new Applied(true, about, List.of(), null, null, List.of());
         }
-        QuestEditor.SaveResult saved = editor.save();
+        QuestEditor.SaveResult saved = editor.save(ops);
         if (!saved.ok()) {
             editor.abandon();
             return new Applied(false, null, saved.messages(), null, null, List.of());

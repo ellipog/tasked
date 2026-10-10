@@ -84,6 +84,14 @@ class ServerEditorsTest {
         return new EditorOp.SetField("one", "title", new JsonPrimitive(title));
     }
 
+    /**
+     * Applies with blind ops: these fixtures carry no registry-backed components, so plain JSON
+     * judges what the server's registries would. See the same helper in {@code EditorOpsTest}.
+     */
+    private static EditorOps.Applied apply(ServerEditors editors, String chapter, EditorOp op) {
+        return editors.apply(chapter, op, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
     private String titleOnDisk() throws IOException {
         return Files.readString(root.resolve("getting_started").resolve("first_steps").resolve("one.json"),
                 StandardCharsets.UTF_8);
@@ -94,14 +102,14 @@ class ServerEditorsTest {
     void theHistorySurvives() throws IOException {
         assertFalse(editors.isOpen("first_steps"), "nothing is open until something is edited");
 
-        assertTrue(editors.apply("first_steps", setTitle("Second")).ok());
+        assertTrue(apply(editors,"first_steps", setTitle("Second")).ok());
         assertTrue(editors.isOpen("first_steps"));
-        assertTrue(editors.apply("first_steps", new EditorOp.Move("one", 128, 64)).ok());
+        assertTrue(apply(editors,"first_steps", new EditorOp.Move("one", 128, 64)).ok());
 
         // The two undos are the assertion: the first takes back the move, the second the rename, which can
         // only happen if both ops were applied to the *same* instance.
-        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok());
-        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok());
+        assertTrue(apply(editors,"first_steps", new EditorOp.Undo()).ok());
+        assertTrue(apply(editors,"first_steps", new EditorOp.Undo()).ok());
 
         assertTrue(titleOnDisk().contains("\"One\""), "the file is back to what the author started with");
         assertTrue(titleOnDisk().contains("\"x\": 0"), "and so is the position");
@@ -113,14 +121,14 @@ class ServerEditorsTest {
         // The path a bulk gesture actually travels: one payload, one op, one chapter's editor. What this
         // adds to `EditorOpsTest` is the server's half -- the cached editor is found by the chapter the
         // client named, and its history is the one the batch joins.
-        EditorOps.Applied applied = editors.apply("first_steps", EditorOps.batch(List.of(
+        EditorOps.Applied applied = apply(editors,"first_steps", EditorOps.batch(List.of(
                 new EditorOp.SetField("one", "title", new JsonPrimitive("First")),
                 new EditorOp.Move("one", 128, 64))));
 
         assertTrue(applied.ok(), () -> "refused: " + applied.messages());
         assertTrue(titleOnDisk().contains("\"First\""), "both edits landed, and both are on the disk");
 
-        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok(), "and one undo is enough");
+        assertTrue(apply(editors,"first_steps", new EditorOp.Undo()).ok(), "and one undo is enough");
         assertTrue(titleOnDisk().contains("\"One\""));
         assertTrue(titleOnDisk().contains("\"x\": 0"), "the whole gesture is back, both edits of it");
     }
@@ -128,14 +136,14 @@ class ServerEditorsTest {
     @Test
     @DisplayName("a reload drops the open chapters, so the next op reads the files again")
     void forgetStartsAgain() {
-        assertTrue(editors.apply("first_steps", setTitle("Second")).ok());
+        assertTrue(apply(editors,"first_steps", setTitle("Second")).ok());
 
         editors.forget();
 
         assertFalse(editors.isOpen("first_steps"));
         // Nothing to undo, because the model that remembered the edit is gone: an undo across a reload would
         // be the server contradicting files it has not read.
-        EditorOps.Applied undone = editors.apply("first_steps", new EditorOp.Undo());
+        EditorOps.Applied undone = apply(editors,"first_steps", new EditorOp.Undo());
         assertFalse(undone.ok());
         assertFalse(undone.messages().isEmpty(), "and it says why rather than doing nothing quietly");
     }
@@ -149,12 +157,12 @@ class ServerEditorsTest {
         // `first_steps.deleted`. The client's effective chapter is empty now, so the op names none, which is
         // why the history has to be reachable without a session.
         Path folder = root.resolve("getting_started").resolve("first_steps");
-        assertTrue(editors.apply("first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
+        assertTrue(apply(editors,"first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
         assertFalse(Files.exists(folder), "the chapter is out of the tree");
         assertTrue(Files.isRegularFile(root.resolve("getting_started/first_steps.deleted/chapter.json")),
                 "and set aside, which is what makes an undo possible at all");
 
-        EditorOps.Applied undone = editors.apply("", new EditorOp.Undo());
+        EditorOps.Applied undone = apply(editors,"", new EditorOp.Undo());
 
         assertTrue(undone.ok(), () -> "the last chapter's delete is undoable: " + undone.messages());
         assertTrue(Files.isRegularFile(folder.resolve("chapter.json")), "the chapter is back");
@@ -164,7 +172,7 @@ class ServerEditorsTest {
 
         // **And the history came across rather than being thrown away**: the delete is now ahead of it, so
         // Ctrl+Y puts the chapter away again.
-        assertTrue(editors.apply("first_steps", new EditorOp.Redo()).ok(),
+        assertTrue(apply(editors,"first_steps", new EditorOp.Redo()).ok(),
                 "the rest of that history is not stranded either");
         assertFalse(Files.exists(folder), "so the redo takes the chapter out again");
     }
@@ -177,11 +185,11 @@ class ServerEditorsTest {
         // it set aside is still on disk. Nothing else in the game can reach it: every walk skips a
         // tombstone, so the tree the editor draws does not know it is there.
         Path folder = root.resolve("getting_started").resolve("first_steps");
-        assertTrue(editors.apply("first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
+        assertTrue(apply(editors,"first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
         editors.forget();
         assertFalse(editors.isOpen("first_steps"), "the model is gone, which is what a restart leaves");
 
-        EditorOps.Applied restored = editors.apply("",
+        EditorOps.Applied restored = apply(editors,"",
                 new EditorOp.RestoreRemoved("getting_started/first_steps.deleted"));
 
         assertTrue(restored.ok(), () -> "a restore needs no history: " + restored.messages());
@@ -189,7 +197,7 @@ class ServerEditorsTest {
         assertTrue(Files.isRegularFile(folder.resolve("one.json")), "with its quests");
         assertFalse(editors.isOpen("first_steps"),
                 "a sessionless restore opens no session -- the same as the first chapter a book is given");
-        assertTrue(editors.apply("first_steps", setTitle("Second")).ok(),
+        assertTrue(apply(editors,"first_steps", setTitle("Second")).ok(),
                 "and the chapter it put back is editable, which is what a restore is for");
     }
 
@@ -212,13 +220,13 @@ class ServerEditorsTest {
     @Test
     @DisplayName("a chapter that is not there, or no chapter at all, is a refusal with a sentence")
     void refusals() {
-        EditorOps.Applied missing = editors.apply("nowhere", setTitle("Second"));
+        EditorOps.Applied missing = apply(editors,"nowhere", setTitle("Second"));
         assertFalse(missing.ok());
         assertEquals(1, missing.messages().size());
         assertFalse(editors.isOpen("nowhere"), "a refusal does not open anything");
 
-        assertFalse(editors.apply(null, setTitle("Second")).ok());
-        assertFalse(editors.apply("  ", setTitle("Second")).ok());
+        assertFalse(apply(editors,null, setTitle("Second")).ok());
+        assertFalse(apply(editors,"  ", setTitle("Second")).ok());
     }
 
     @Test
@@ -232,7 +240,7 @@ class ServerEditorsTest {
         // shape a destructive op would silently take.
         String before = titleOnDisk();
 
-        EditorOps.Applied field = editors.apply("first_steps",
+        EditorOps.Applied field = apply(editors,"first_steps",
                 new EditorOp.SetField("elsewhere", "title", new JsonPrimitive("Moved")));
         assertFalse(field.ok());
         assertEquals(1, field.messages().size());
@@ -240,9 +248,9 @@ class ServerEditorsTest {
         assertTrue(field.messages().get(0).contains("first_steps"),
                 "the refusal names the chapter it was aimed at: " + field.messages());
 
-        assertFalse(editors.apply("first_steps", new EditorOp.Delete("elsewhere")).ok(),
+        assertFalse(apply(editors,"first_steps", new EditorOp.Delete("elsewhere")).ok(),
                 "the destructive one is refused by the same rule");
-        assertTrue(editors.apply("first_steps", new EditorOp.Delete("elsewhere")).messages().get(0)
+        assertTrue(apply(editors,"first_steps", new EditorOp.Delete("elsewhere")).messages().get(0)
                         .contains("elsewhere"),
                 "and it names the quest too, rather than reporting a no-op");
 
@@ -256,7 +264,7 @@ class ServerEditorsTest {
         // asked only the op itself would let every element of a bulk edit through the one gate that has to
         // hold for all of them. Checked before anything runs, so a refused gesture is refused entirely
         // rather than half-applied.
-        EditorOps.Applied applied = editors.apply("first_steps", EditorOps.batch(List.of(
+        EditorOps.Applied applied = apply(editors,"first_steps", EditorOps.batch(List.of(
                 new EditorOp.SetField("one", "title", new JsonPrimitive("First")),
                 new EditorOp.SetField("elsewhere", "title", new JsonPrimitive("Moved")))));
 
@@ -279,7 +287,7 @@ class ServerEditorsTest {
         mystery.addProperty("title", "Did it");
         mystery.addProperty("splines", 4);
 
-        EditorOps.Applied refused = editors.apply("first_steps",
+        EditorOps.Applied refused = apply(editors,"first_steps",
                 new EditorOp.Insert("one", "tasks", 0, mystery));
 
         assertFalse(refused.ok());
@@ -294,9 +302,9 @@ class ServerEditorsTest {
         // halves at once: the key is stale and the path is gone. What must survive is the history -- a
         // re-opened editor with an empty stack would make Ctrl+Z after a rename a key that does nothing,
         // which is exactly the fault this class was written to prevent for ordinary edits.
-        assertTrue(editors.apply("first_steps", setTitle("Edited")).ok());
+        assertTrue(apply(editors,"first_steps", setTitle("Edited")).ok());
 
-        EditorOps.Applied renamed = editors.apply("first_steps",
+        EditorOps.Applied renamed = apply(editors,"first_steps",
                 new EditorOp.RenameChapter("first_steps", "renamed_chapter", null));
 
         assertTrue(renamed.ok(), renamed.messages().toString());
@@ -306,7 +314,7 @@ class ServerEditorsTest {
         // Undo is last-in-first-out, so the rename itself comes back first: the folder returns to its
         // old name and the cache follows it there -- which is the half that a stale editor would get
         // wrong, writing the next edit into a folder nobody named any more.
-        EditorOps.Applied undid = editors.apply("renamed_chapter", new EditorOp.Undo());
+        EditorOps.Applied undid = apply(editors,"renamed_chapter", new EditorOp.Undo());
         assertTrue(undid.ok(), undid.messages().toString());
         assertTrue(Files.isRegularFile(root.resolve("getting_started").resolve("first_steps")
                 .resolve("chapter.json")), "the folder is back where it was");
@@ -314,7 +322,7 @@ class ServerEditorsTest {
                 "and the cache is keyed where the folder actually is");
 
         // And the edit made before the rename is still behind it, at the id it now has.
-        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok(),
+        assertTrue(apply(editors,"first_steps", new EditorOp.Undo()).ok(),
                 "the title edit made before the rename is still undoable");
         assertFalse(titleOnDisk().contains("Edited"), titleOnDisk());
     }
@@ -329,7 +337,7 @@ class ServerEditorsTest {
         Files.createDirectories(bare);
         ServerEditors bareEditors = new ServerEditors(() -> bare);
 
-        EditorOps.Applied applied = bareEditors.apply("",
+        EditorOps.Applied applied = apply(bareEditors,"",
                 new EditorOp.CreateChapter("", 0, "first", "First"));
 
         assertTrue(applied.ok(), applied.messages().toString());
@@ -350,7 +358,7 @@ class ServerEditorsTest {
         Files.createDirectories(bare);
         ServerEditors bareEditors = new ServerEditors(() -> bare);
 
-        EditorOps.Applied applied = bareEditors.apply("", setTitle("x"));
+        EditorOps.Applied applied = apply(bareEditors,"", setTitle("x"));
 
         assertFalse(applied.ok());
         assertTrue(applied.messages().toString().contains("chapter"),

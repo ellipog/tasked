@@ -53,7 +53,8 @@ public final class ServerEditors {
      * {@code ok} false and a sentence, never an exception: this is called from a payload handler, on the
      * server thread, holding a player's message.
      */
-    public EditorOps.Applied apply(String chapter, EditorOp op) {
+    public EditorOps.Applied apply(String chapter, EditorOp op,
+                                   com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (op == null) {
             // The same sentence `applyWithoutSession` gives, so "not an edit this version knows" reads the
             // same whether or not a chapter happened to be named. A null op would otherwise reach the
@@ -66,7 +67,7 @@ public final class ServerEditors {
             // the first chapter gets made. Every other kind is refused there with a sentence, because an
             // edit to a chapter needs one to edit. See `EditorOps.applyWithoutSession`, and
             // `applyWithoutChapter` for the one op that is neither.
-            return applyWithoutChapter(op);
+            return applyWithoutChapter(op, ops);
         }
         QuestEditor editor = open(chapter).orElse(null);
         if (editor == null) {
@@ -87,7 +88,7 @@ public final class ServerEditors {
                         + "\" in the chapter you are editing (\"" + chapter + "\")");
             }
         }
-        EditorOps.Applied applied = EditorOps.apply(editor, op);
+        EditorOps.Applied applied = EditorOps.apply(editor, op, ops);
         if (applied.ok()) {
             // A chapter is being edited again, so the history kept for a book with none is not the way
             // back to anything: the client names its own chapter from here on.
@@ -115,11 +116,12 @@ public final class ServerEditors {
      * <p>An undo that puts the chapter back re-opens it under its own id and carries the history across,
      * so the rest of that history is not stranded either.
      */
-    private EditorOps.Applied applyWithoutChapter(EditorOp op) {
+    private EditorOps.Applied applyWithoutChapter(EditorOp op,
+                                                  com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (orphan == null || !(op instanceof EditorOp.Undo || op instanceof EditorOp.Redo)) {
             return EditorOps.applyWithoutSession(root.get(), op);
         }
-        EditorOps.Applied applied = EditorOps.apply(orphan, op);
+        EditorOps.Applied applied = EditorOps.apply(orphan, op, ops);
         String back = applied.chapterId();
         if (!applied.ok() || back == null || back.isBlank()) {
             return applied;
@@ -253,6 +255,77 @@ public final class ServerEditors {
                 .filter(id -> id != null && !id.isBlank())
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * One chapter's model decoded for a targeted refresh, or empty when there is nothing to read.
+     *
+     * <p>Read from the open editor rather than from disk: the op this refresh answers just saved
+     * through it, so the model is the saved state by construction, with no walk and no second
+     * read. Decode failures answer empty — a hand edit that broke the JSON between the save and
+     * the flush is possible however unlikely — and the caller answers those with a full reload,
+     * which is always correct.
+     *
+     * <p>No validation here, for the same reason there is no disk read: the save validated what
+     * it wrote, and a cosmetic op cannot have broken anything it did not write. Anything heavier
+     * than cosmetic never reaches this method.
+     */
+    public java.util.Optional<dev.ellipog.tenet.quest.QuestIndex.FreshChapter> refreshModel(
+            String chapter,
+            com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        if (chapter == null || chapter.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        QuestEditor editor = open(chapter).orElse(null);
+        if (editor == null) {
+            return java.util.Optional.empty();
+        }
+        try {
+            java.nio.file.Path manifestPath =
+                    editor.folder().resolve(dev.ellipog.tenet.quest.QuestFiles.CHAPTER_MANIFEST);
+            dev.ellipog.armature.api.data.JsonDocument manifestDocument =
+                    dev.ellipog.armature.api.data.JsonDocument.parse(
+                            displayOf(manifestPath), editor.chapterJson());
+            dev.ellipog.tenet.quest.ChapterManifest manifest =
+                    dev.ellipog.tenet.quest.ChapterManifest.CODEC.parse(ops,
+                            com.google.gson.JsonParser.parseString(editor.chapterJson()))
+                            .getOrThrow();
+            java.util.List<dev.ellipog.tenet.quest.QuestIndex.FreshQuest> fresh =
+                    new java.util.ArrayList<>();
+            for (String stem : editor.questIds()) {
+                dev.ellipog.tenet.editor.JsonFile quest = editor.quest(stem);
+                if (quest == null) {
+                    return java.util.Optional.empty();
+                }
+                dev.ellipog.tenet.quest.Quest decoded =
+                        dev.ellipog.tenet.quest.Quest.CODEC.parse(ops, quest.root())
+                                .getOrThrow();
+                String display = displayOf(editor.pathOf(stem));
+                dev.ellipog.armature.api.data.JsonDocument document =
+                        dev.ellipog.armature.api.data.JsonDocument.parse(display, quest.json());
+                fresh.add(new dev.ellipog.tenet.quest.QuestIndex.FreshQuest(decoded,
+                        stem + ".json", document, display));
+            }
+            dev.ellipog.tenet.quest.Chapter assembled =
+                    manifest.toChapter(fresh.stream()
+                            .map(dev.ellipog.tenet.quest.QuestIndex.FreshQuest::quest).toList());
+            return java.util.Optional.of(new dev.ellipog.tenet.quest.QuestIndex.FreshChapter(
+                    chapter, assembled, manifestDocument, displayOf(editor.folder().resolve(
+                            dev.ellipog.tenet.quest.QuestFiles.CHAPTER_MANIFEST)), fresh));
+        }
+        catch (dev.ellipog.armature.api.data.JsonParseException | RuntimeException broken) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** A path the tree reads, relative to the quest root like the loader's own displays. */
+    private String displayOf(java.nio.file.Path path) {
+        try {
+            return root.get().relativize(path).toString().replace('\\', '/');
+        }
+        catch (RuntimeException unrelated) {
+            return path.getFileName().toString();
+        }
     }
 
     /**

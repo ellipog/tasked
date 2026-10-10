@@ -231,12 +231,12 @@ public final class QuestNotifier {
     /**
      * One notice, as the three sinks need it.
      *
-     * <p>The four facts travel together because they are one thing said three ways: the sentence the book's
+     * <p>The facts travel together because they are one thing said three ways: the sentence the book's
      * stack and the HUD's draw, and the label, title, icon and token a {@code QuestToast} needs. Resolved
      * once, so a notice that reached the HUD and one that reached the toast cannot say different words.
      */
-    private record Said(Component message, String token, ItemStack icon, String texture, Component label,
-                         Component title) {
+    private record Said(Component message, String token, ItemStack icon, String texture, String sprite,
+                         Component label, Component title) {
     }
 
     /** Says one notice the way its moment asks for. */
@@ -274,7 +274,8 @@ public final class QuestNotifier {
             // told once, and the token is what makes the two notices the same notice. One token per kind,
             // so a quest's completion and a task of it are not confused for each other.
             minecraft.getToasts().addToast(
-                    new QuestToast(said.token(), said.icon(), said.texture(), said.label(), said.title()));
+                    new QuestToast(said.token(), said.icon(), said.texture(), said.sprite(), said.label(),
+                            said.title()));
         }
         // A soft chime rather than the advancement fanfare this first shipped with: a pack with a
         // hundred quests plays this a hundred times, and the challenge sting is a celebration-sized
@@ -295,6 +296,7 @@ public final class QuestNotifier {
                 QuestToast.tokenFor(questId),
                 entry.icon(),
                 entry.textureIcon(),
+                entry.spriteIcon(),
                 Component.translatable("tenet.toast.completed"),
                 Component.literal(entry.titleText()));
     }
@@ -313,10 +315,17 @@ public final class QuestNotifier {
         }
         ClientQuestCache.TaskEntry task = entry.tasks().get(notice.index());
         String text = task.text().getString();
+        // A bare checkmark's notice wears its state box. An author picture wins when present,
+        // like on every other surface.
+        String texture = dev.ellipog.tenet.client.CheckmarkArt.wearsBox(task)
+                ? dev.ellipog.tenet.client.CheckmarkArt.forState(
+                        ClientQuestCache.taskDone(notice.subjectId(), notice.index())).toString()
+                : "";
         return new Said(
                 Component.translatable("tenet.notice.task_completed", text),
                 QuestToast.tokenForTask(notice.subjectId(), notice.index()),
                 task.icon(),
+                texture,
                 "",
                 Component.translatable("tenet.toast.task_completed"),
                 Component.literal(text));
@@ -331,6 +340,7 @@ public final class QuestNotifier {
                         QuestToast.tokenForChapter(chapterId),
                         chapter.icon(),
                         chapter.textureIcon(),
+                        chapter.spriteIcon(),
                         Component.translatable("tenet.toast.chapter_completed"),
                         Component.literal(chapter.titleText()));
             }

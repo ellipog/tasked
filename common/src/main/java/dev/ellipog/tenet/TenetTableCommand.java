@@ -220,7 +220,9 @@ public final class TenetTableCommand {
         }
         TableImport.Imported imported = TableImport.fromContainer(container.get());
         dev.ellipog.tenet.editor.EditorOps.Applied applied = TenetQuests.tables()
-                .importInto(TableAddress.of(id), imported.entries());
+                .importInto(TableAddress.of(id), imported.entries(), ctx.getSource().getServer()
+                        .registryAccess().createSerializationContext(
+                                com.mojang.serialization.JsonOps.INSTANCE));
         if (!applied.ok()) {
             for (String message : applied.messages()) {
                 ctx.getSource().sendFailure(Component.literal(message));

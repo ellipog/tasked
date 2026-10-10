@@ -721,9 +721,9 @@ public final class QuestValidator {
         if (document.has(path + ".sequentialTasks")) {
             Checks.optionalBool(document, path + ".sequentialTasks", problems);
         }
-        // Whether the quest gates its dependants. False is the rule; true is the side quest that
-        // nothing waits for. Read by the engine, so a typo here would silently gate — the drift the
-        // closed-set checks prevent.
+        // Whether the quest is marked a side quest. A marker, not a gate: it gates its
+        // dependants exactly like any other quest. Read by the engine, so a typo here would
+        // silently gate — the drift the closed-set checks prevent.
         if (document.has(path + ".optional")) {
             Checks.optionalBool(document, path + ".optional", problems);
         }
@@ -1477,8 +1477,30 @@ public final class QuestValidator {
         Checks.rejectUnknown(document, path, dev.ellipog.tenet.quest.Icon.FIELDS, problems);
 
         // Which arm the object names. The item arm wins a tie, because "item" is the key every old
-        // file carries and the two new keys never appear beside it except by mistake; the codec
+        // file carries and the new keys never appear beside it except by mistake; the codec
         // reads the same way, so the two cannot disagree about which arm a file means.
+        List<String> arms = new java.util.ArrayList<>();
+        for (String arm : new String[] {"item", "texture", "sprite", "entity"}) {
+            if (document.has(path + "." + arm)) {
+                arms.add(arm);
+            }
+        }
+        if (arms.size() > 1) {
+            // A warning rather than an error, like an unknown item: the codec's precedence is
+            // deterministic (item, then texture, sprite, entity), so the file still loads with a
+            // known picture, and an error would skip the whole quest over a cosmetic field.
+            String winner = arms.contains("item") ? "item"
+                    : arms.contains("texture") ? "texture"
+                    : arms.contains("sprite") ? "sprite" : "entity";
+            List<String> ignored = new java.util.ArrayList<>(arms);
+            ignored.remove(winner);
+            problems.warn(document, path,
+                    "this icon names " + arms.size() + " pictures (" + String.join(", ", arms) + ")"
+                            + " - only \"" + winner + "\" is drawn and "
+                            + String.join(", ", ignored) + " ignored."
+                            + " Keep one arm and remove the other"
+                            + (ignored.size() == 1 ? "" : "s"));
+        }
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);
 
@@ -1511,6 +1533,23 @@ public final class QuestValidator {
             });
             return;
         }
+        if (document.has(path + ".sprite")) {
+            // An atlas region, like a chapter element's sprite: the atlas is not catalogued on
+            // either side — see the element check — so the id is checked for shape and nothing
+            // more, and the client draws the missing mark for a region nothing holds.
+            Checks.optionalString(document, path + ".sprite", problems).ifPresent(raw -> {
+                if (raw.isBlank()) {
+                    problems.error(document, path + ".sprite",
+                            "a sprite id may not be empty - write e.g. \"minecraft:block/sculk\"");
+                }
+                else if (net.minecraft.resources.ResourceLocation.tryParse(raw) == null) {
+                    problems.error(document, path + ".sprite", "\"" + raw
+                            + "\" is not a namespaced id;"
+                            + " expected something like \"minecraft:block/sculk\"");
+                }
+            });
+            return;
+        }
         if (document.has(path + ".entity")) {
             Checks.optionalString(document, path + ".entity", problems).ifPresent(raw -> {
                 if (raw.isBlank()) {
@@ -1538,11 +1577,11 @@ public final class QuestValidator {
             return;
         }
         // No arm key at all: the codec refuses it, and its message is the precise one — but only the
-        // validator runs before the loader, so the sentence here names the three keys.
+        // validator runs before the loader, so the sentence here names the four keys.
         document.get(path).ifPresent(object -> Checks.parse(
                         dev.ellipog.tenet.quest.Icon.CODEC, object, ops)
                 .error().ifPresent(error -> problems.error(document, path,
-                        "this is not a usable icon: write one of \"item\", \"texture\" or \"entity\"")));
+                        "this is not a usable icon: write one of \"item\", \"texture\", \"sprite\" or \"entity\"")));
     }
 
     /**

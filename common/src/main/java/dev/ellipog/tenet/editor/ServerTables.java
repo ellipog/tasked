@@ -111,7 +111,8 @@ public final class ServerTables {
      * Ctrl+Z for the whole thing. An op per item would be a write and a history step each — the
      * difference between a feature and a way to make the undo stack useless.
      */
-    public EditorOps.Applied importInto(TableAddress address, List<JsonObject> entries) {
+    public EditorOps.Applied importInto(TableAddress address, List<JsonObject> entries,
+                                        com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Resolved resolved = resolve(address);
         if (resolved.refusal() != null) {
             return EditorOps.Applied.refused(resolved.refusal());
@@ -121,7 +122,7 @@ public final class ServerTables {
         }
         TableEditor editor = resolved.editor();
         int at = editor.entries().size();
-        return finish(editor, editor.insertBatch(at, entries) > 0, address);
+        return finish(editor, editor.insertBatch(at, entries) > 0, address, ops);
     }
 
     /** Where a named table lives. */
@@ -228,7 +229,8 @@ public final class ServerTables {
      * {@link EditorOps.Applied} with {@code ok} false and a sentence, never an exception: this runs on
      * the server thread with a player's message in its hand.
      */
-    public EditorOps.Applied apply(TableOp op) {
+    public EditorOps.Applied apply(TableOp op,
+                                   com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (op == null) {
             return EditorOps.Applied.refused("that is not a table edit this version knows");
         }
@@ -239,7 +241,7 @@ public final class ServerTables {
             return EditorOps.Applied.refused(problem);
         }
         try {
-            return applyOne(op);
+            return applyOne(op, ops);
         }
         catch (RuntimeException unexpected) {
             Constants.LOG.warn("tenet: applying a table edit failed", unexpected);
@@ -247,14 +249,16 @@ public final class ServerTables {
         }
     }
 
-    private EditorOps.Applied applyOne(TableOp op) {
+    private EditorOps.Applied applyOne(TableOp op,
+                                         com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         return switch (op) {
             case TableOp.Set set -> {
                 Resolved resolved = resolve(set.address());
                 if (resolved.refusal() != null) {
                     yield EditorOps.Applied.refused(resolved.refusal());
                 }
-                yield finish(resolved.editor(), resolved.editor().set(set.path(), set.value()), set.address());
+                yield finish(resolved.editor(), resolved.editor().set(set.path(), set.value()), set.address(),
+                        ops);
             }
             case TableOp.SetFields fields -> {
                 Resolved resolved = resolve(fields.address());
@@ -268,7 +272,7 @@ public final class ServerTables {
                 for (var field : fields.fields().entrySet()) {
                     writes.put(field.getKey(), field.getValue());
                 }
-                yield finish(resolved.editor(), resolved.editor().setAll(writes), fields.address());
+                yield finish(resolved.editor(), resolved.editor().setAll(writes), fields.address(), ops);
             }
             case TableOp.Insert insert -> {
                 Resolved resolved = resolve(insert.address());
@@ -279,21 +283,23 @@ public final class ServerTables {
                     yield EditorOps.Applied.refused("that edit has no entry in it");
                 }
                 yield finish(resolved.editor(), resolved.editor().insert(insert.index(), insert.entry()),
-                        insert.address());
+                        insert.address(), ops);
             }
             case TableOp.Remove remove -> {
                 Resolved resolved = resolve(remove.address());
                 if (resolved.refusal() != null) {
                     yield EditorOps.Applied.refused(resolved.refusal());
                 }
-                yield finish(resolved.editor(), resolved.editor().remove(remove.index()), remove.address());
+                yield finish(resolved.editor(), resolved.editor().remove(remove.index()), remove.address(),
+                        ops);
             }
             case TableOp.Move move -> {
                 Resolved resolved = resolve(move.address());
                 if (resolved.refusal() != null) {
                     yield EditorOps.Applied.refused(resolved.refusal());
                 }
-                yield finish(resolved.editor(), resolved.editor().move(move.from(), move.to()), move.address());
+                yield finish(resolved.editor(), resolved.editor().move(move.from(), move.to()), move.address(),
+                        ops);
             }
             case TableOp.Undo undo -> {
                 Resolved resolved = resolve(undo.address());
@@ -305,7 +311,7 @@ public final class ServerTables {
                 }
                 // An undo puts the model back; the save is what makes the disk agree with it, and a
                 // refusal here redoes the step so the two are never left disagreeing.
-                QuestEditor.SaveResult saved = resolved.editor().save(loaded.get());
+                QuestEditor.SaveResult saved = resolved.editor().save(loaded.get(), ops);
                 if (!saved.ok()) {
                     resolved.editor().redo();
                     yield new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());
@@ -320,27 +326,28 @@ public final class ServerTables {
                 if (!resolved.editor().redo()) {
                     yield EditorOps.Applied.refused("there is nothing to redo in this table");
                 }
-                QuestEditor.SaveResult saved = resolved.editor().save(loaded.get());
+                QuestEditor.SaveResult saved = resolved.editor().save(loaded.get(), ops);
                 if (!saved.ok()) {
                     resolved.editor().undo();
                     yield new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());
                 }
                 yield EditorOps.Applied.changed(null, null, List.of());
             }
-            case TableOp.Create create -> create(create);
-            case TableOp.Duplicate duplicate -> duplicate(duplicate);
+            case TableOp.Create create -> create(create, ops);
+            case TableOp.Duplicate duplicate -> duplicate(duplicate, ops);
             case TableOp.Delete delete -> delete(delete);
             case TableOp.Restore restore -> restore(restore);
-            case TableOp.Select select -> select(select);
+            case TableOp.Select select -> select(select, ops);
         };
     }
 
     /** Saves what an edit changed, or undoes it — the rule every op in this mod follows. */
-    private EditorOps.Applied finish(TableEditor editor, boolean changed, TableAddress address) {
+    private EditorOps.Applied finish(TableEditor editor, boolean changed, TableAddress address,
+                                     com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (!changed) {
             return EditorOps.Applied.refused("that edit would change nothing, or could not be written");
         }
-        QuestEditor.SaveResult saved = editor.save(loaded.get());
+        QuestEditor.SaveResult saved = editor.save(loaded.get(), ops);
         if (!saved.ok()) {
             editor.undo();
             return new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());
@@ -358,7 +365,8 @@ public final class ServerTables {
      * <p>Refused when the id is taken — including by a file the loader refused, because a name that is
      * already on disk is a name an author would lose work by reusing.
      */
-    private EditorOps.Applied create(TableOp.Create create) {
+    private EditorOps.Applied create(TableOp.Create create,
+                                     com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (create.id() == null || create.id().isBlank() || create.root() == null) {
             return EditorOps.Applied.refused("a new table needs a name and a table");
         }
@@ -366,7 +374,7 @@ public final class ServerTables {
             return EditorOps.Applied.refused("there is already a table called \"" + create.id() + "\"");
         }
         TableEditor fresh = TableEditor.fresh(fileOf(create.id()), create.id(), create.root());
-        QuestEditor.SaveResult saved = fresh.save(loaded.get());
+        QuestEditor.SaveResult saved = fresh.save(loaded.get(), ops);
         if (!saved.ok()) {
             return new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());
         }
@@ -385,7 +393,8 @@ public final class ServerTables {
      * tables yet, and a copied file that kept its handles would collide with the original the moment a
      * reward from each was materialised into one quest.
      */
-    private EditorOps.Applied duplicate(TableOp.Duplicate duplicate) {
+    private EditorOps.Applied duplicate(TableOp.Duplicate duplicate,
+                                        com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (!exists(duplicate.id())) {
             return EditorOps.Applied.refused("no reward table named \"" + duplicate.id() + "\"");
         }
@@ -403,7 +412,7 @@ public final class ServerTables {
         // walk starts at the entries: a nested inline table inside the copy still needs its own handle.
         InlineTables.remintEntries(copy);
         TableEditor fresh = TableEditor.fresh(fileOf(duplicate.newId()), duplicate.newId(), copy);
-        QuestEditor.SaveResult saved = fresh.save(loaded.get());
+        QuestEditor.SaveResult saved = fresh.save(loaded.get(), ops);
         if (!saved.ok()) {
             return new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());
         }
@@ -493,7 +502,8 @@ public final class ServerTables {
      * same push, so a reward can never be left holding both — which is a state the loader reads one way
      * and an author would read the other.
      */
-    private EditorOps.Applied select(TableOp.Select select) {
+    private EditorOps.Applied select(TableOp.Select select,
+                                     com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         TableEditor holder = holder(select.owner(), select.owningPath());
         if (holder == null) {
             return EditorOps.Applied.refused("that reward could not be found to point at a table");
@@ -509,7 +519,7 @@ public final class ServerTables {
         if (!changed) {
             return EditorOps.Applied.refused("that reward could not be written to");
         }
-        QuestEditor.SaveResult saved = holder.save(loaded.get());
+        QuestEditor.SaveResult saved = holder.save(loaded.get(), ops);
         if (!saved.ok()) {
             holder.undo();
             return new EditorOps.Applied(false, null, saved.messages(), null, null, List.of());

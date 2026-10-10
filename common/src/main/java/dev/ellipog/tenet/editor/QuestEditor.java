@@ -487,6 +487,9 @@ public final class QuestEditor {
                     return false;
                 }
             }
+            if (value != null) {
+                dropSiblingIconArms(quest, path);
+            }
         }
         catch (JsonFile.UnwritablePath unwritable) {
             // Refused before anything changed, so the pushed snapshot is a lie and goes.
@@ -494,6 +497,38 @@ public final class QuestEditor {
             return false;
         }
         return true;
+    }
+
+    /**
+     * One icon arm written means the others go: the codec reads the item arm first and ignores the
+     * rest, so a file holding two arms is a file whose author believes something it does not say.
+     * The screen's own picker commits already write whole objects; this is the backstop for leaf
+     * writes — raw JSON edits, scripts, and any client older than the arm it cannot name.
+     */
+    private static void dropSiblingIconArms(JsonFile file, String path) {
+        String arm = null;
+        String parent = null;
+        for (String candidate : List.of("item", "texture", "sprite", "entity")) {
+            String suffix = ".icon." + candidate;
+            if (path.equals("icon." + candidate)) {
+                arm = candidate;
+                parent = "icon";
+                break;
+            }
+            if (path.endsWith(suffix)) {
+                arm = candidate;
+                parent = path.substring(0, path.length() - candidate.length() - 1);
+                break;
+            }
+        }
+        if (arm == null) {
+            return;
+        }
+        for (String sibling : List.of("item", "texture", "sprite", "entity")) {
+            if (!sibling.equals(arm)) {
+                file.remove(parent + "." + sibling);
+            }
+        }
     }
 
     /**
@@ -519,6 +554,9 @@ public final class QuestEditor {
                     undo.pop();
                     return false;
                 }
+            }
+            if (value != null) {
+                dropSiblingIconArms(manifest, path);
             }
         }
         catch (JsonFile.UnwritablePath unwritable) {
@@ -852,6 +890,9 @@ public final class QuestEditor {
                     undo.pop();
                     return false;
                 }
+            }
+            if (value != null) {
+                dropSiblingIconArms(group, path);
             }
         }
         catch (JsonFile.UnwritablePath unwritable) {
@@ -1202,7 +1243,8 @@ public final class QuestEditor {
      *
      * @param aside the tombstone's own path, resolved by the caller against the quest root
      */
-    public Deletion restoreAside(Path aside) {
+    public Deletion restoreAside(Path aside,
+                                 com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         String stem = aside == null ? null : QuestFiles.restoredName(aside.getFileName().toString());
         if (stem == null || !stem.endsWith(SUFFIX)) {
             return Deletion.refused("\"" + (aside == null ? "" : aside.getFileName())
@@ -1236,7 +1278,7 @@ public final class QuestEditor {
         // not: a file the model never saw is one nothing puts back, so a refused save would leave it on
         // disk with no manifest entry -- an error the loader reports on every load.
         reloadQuests();
-        SaveResult saved = save();
+        SaveResult saved = save(ops);
         if (!saved.ok()) {
             abandon();
             return Deletion.refused(String.join("; ", saved.messages()));
@@ -1677,9 +1719,16 @@ public final class QuestEditor {
             return refused.isEmpty();
         }
 
-        /** One line per refusal, in the compiler format the loader's own messages use. */
+        /**
+         * One line per refusal, in the compiler format the loader's own messages use — plus the
+         * JSON path in brackets, because a refusal that does not name its field names nothing the
+         * author can go and fix. (The broadcast payload drops paths for toast length; a refusal is
+         * already one line per fault, so it keeps them.)
+         */
         public List<String> messages() {
-            return refused.stream().map(DataProblem::toString).toList();
+            return refused.stream().map(problem -> problem.path().isEmpty()
+                    ? problem.render()
+                    : problem.render() + " (at " + problem.path() + ")").toList();
         }
     }
 
@@ -1693,8 +1742,13 @@ public final class QuestEditor {
      * <p>Every file is validated, not only the changed ones, because a file that was already broken on
      * disk is worth telling the author about at the moment they save — and because a validation that
      * skips files is a validation whose green result means nothing.
+     *
+     * @param ops the ops codecs decode with: the server's registry ops in production, so a save
+     *            judges exactly what a load judges. Saving with blind ops refuses files the loader
+     *            accepts — registry-backed components decode against registries — which is how one
+     *            enchanted reward came to veto every edit in its chapter.
      */
-    public SaveResult save() {
+    public SaveResult save(com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Problems problems = new Problems();
         // **The files themselves, not paths to be looked up again.** This list held `Path`s and the write
         // loop turned each one back into a quest with `quests.get(idOf(path))` — a lookup in the manifest's
@@ -1704,7 +1758,8 @@ public final class QuestEditor {
         // reconciling it, which is the same shape `reloadQuests` and `pathOf` already take.
         List<JsonFile> toWrite = new ArrayList<>();
 
-        validate(manifest.file().getFileName().toString(), manifest.json(), DocumentKind.CHAPTER, problems);
+        validate(manifest.file().getFileName().toString(), manifest.json(), DocumentKind.CHAPTER, problems,
+                ops);
         if (manifest.dirty()) {
             toWrite.add(manifest);
         }
@@ -1713,7 +1768,8 @@ public final class QuestEditor {
         // reader's rules, not a chapter's -- and written in the same all-or-nothing pass as everything
         // else: a save that half-wrote a chapter and its group would leave the pair disagreeing.
         if (group != null) {
-            validate(root.relativize(group.file()).toString(), group.json(), DocumentKind.GROUP, problems);
+            validate(root.relativize(group.file()).toString(), group.json(), DocumentKind.GROUP, problems,
+                    ops);
             if (group.dirty()) {
                 toWrite.add(group);
             }
@@ -1722,7 +1778,7 @@ public final class QuestEditor {
         for (JsonFile quest : quests.values()) {
             // The file's own name rather than the declared id plus `.json`: a refusal has to name a file the
             // author can go and open, and for a converted pack those are two different strings.
-            validate(quest.file().getFileName().toString(), quest.json(), DocumentKind.QUEST, problems);
+            validate(quest.file().getFileName().toString(), quest.json(), DocumentKind.QUEST, problems, ops);
             if (quest.dirty()) {
                 toWrite.add(quest);
             }
@@ -1768,7 +1824,8 @@ public final class QuestEditor {
     /** Which document a file is, so the validator reads it with the right rules. */
     private enum DocumentKind { QUEST, CHAPTER, GROUP }
 
-    private void validate(String display, String text, DocumentKind kind, Problems problems) {
+    private void validate(String display, String text, DocumentKind kind, Problems problems,
+                          com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         JsonDocument document;
         try {
             document = JsonDocument.parse(display, text);
@@ -1782,9 +1839,9 @@ public final class QuestEditor {
             return;
         }
         switch (kind) {
-            case QUEST -> QuestValidator.validateQuestDocument(document, problems);
-            case CHAPTER -> QuestValidator.validateChapterDocument(document, problems);
-            case GROUP -> QuestValidator.validateGroupDocument(document, problems);
+            case QUEST -> QuestValidator.validateQuestDocument(document, problems, ops);
+            case CHAPTER -> QuestValidator.validateChapterDocument(document, problems, ops);
+            case GROUP -> QuestValidator.validateGroupDocument(document, problems, ops);
         }
     }
 

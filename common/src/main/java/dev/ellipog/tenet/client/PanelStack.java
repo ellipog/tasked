@@ -166,9 +166,9 @@ public final class PanelStack {
     // ------------------------------------------------------------------
 
     /**
-     * Whether this kind is opened <i>from</i> something: a picker, or a table.
+     * Whether this kind is opened <i>from</i> something: a picker, a table, or a filter's matches.
      *
-     * <p>All four are lists of the pack's or the registry's things rather than the thing itself, and every
+     * <p>All five are lists of the pack's or the registry's things rather than the thing itself, and every
      * one of them has somewhere to return to -- which is why they can be emptied without losing anything.
      * It is the only classification left, and it answers exactly one question: does this kind fill column 2
      * when column 1 already holds a panel, or does it take column 1 itself. {@link #afterOpen} states why
@@ -176,7 +176,8 @@ public final class PanelStack {
      */
     public static boolean isChild(PanelKind kind) {
         return kind == PanelKind.PICKER || kind == PanelKind.TEXTURE
-                || kind == PanelKind.TABLE_BROWSER || kind == PanelKind.TABLE_EDITOR;
+                || kind == PanelKind.TABLE_BROWSER || kind == PanelKind.TABLE_EDITOR
+                || kind == PanelKind.FILTER;
     }
 
     /**
@@ -410,7 +411,8 @@ public final class PanelStack {
         if (kind == PanelKind.NONE) {
             return 0;
         }
-        if (kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER) {
+        if (kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER
+                || kind == PanelKind.FILTER) {
             return SECOND_WIDTH;
         }
         return isWide(kind) ? WIDE_WIDTH : WIDTH;

@@ -24,34 +24,19 @@ import java.util.function.Function;
  * bar a dependency must reach, how many are enough, which ones are still missing — lives here where a
  * test can hold it, and the screen asks.
  *
- * <h2>Optional dependencies are counted on neither side</h2>
+ * <h2>Every dependency counts</h2>
  *
- * <p>A quest flagged {@code optional} does not gate its dependants: it counts as neither satisfied
- * nor required. So it is left out of both the satisfied count and the required count here, exactly
- * as the engine leaves it out of both of its — and a second spelling of the denominator is how the
- * card's "2 of 3 met" would come to disagree with the unlock. The lines from an optional quest are
- * still drawn, and {@link #satisfies} still answers per edge: optionality is about the rule, not
- * about whether the line exists.
+ * <p>Optional quests gate exactly like any other — FTB Quests' optional only excuses a quest
+ * from chapter completion, never from a gate — so the counts here name every edge, exactly
+ * as the engine does. A second spelling of the denominator is how the card's "2 of 3 met"
+ * would come to disagree with the unlock.
  */
-public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<String> dependencies,
-                                 java.util.Set<String> optionalDependencies) {
+public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<String> dependencies) {
 
     public DependencyProgress {
         Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(dependencies, "dependencies");
-        Objects.requireNonNull(optionalDependencies, "optionalDependencies");
         dependencies = List.copyOf(dependencies);
-        optionalDependencies = java.util.Set.copyOf(optionalDependencies);
-    }
-
-    /** The same rule with no optional dependencies: every dependency counts. */
-    public DependencyProgress(PrerequisiteMode mode, int minRequired, List<String> dependencies) {
-        this(mode, minRequired, dependencies, java.util.Set.of());
-    }
-
-    /** Whether a dependency is optional, and so counted on neither side. */
-    public boolean isOptional(String dependency) {
-        return optionalDependencies.contains(dependency);
     }
 
     /** The state a dependency must reach for this rule to count it. */
@@ -59,16 +44,16 @@ public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<St
         return QuestState.bar(mode);
     }
 
-    /** How many dependencies must meet the bar, optional ones left out. */
+    /** How many dependencies must meet the bar. */
     public int required() {
         return PrerequisiteMode.requiredCount(mode, minRequired, counted());
     }
 
-    /** How many of the counted ones do, optional ones left out. */
+    /** How many of them do. */
     public int satisfied(Function<String, QuestState> states) {
         int met = 0;
         for (String dependency : dependencies) {
-            if (!isOptional(dependency) && satisfies(dependency, states)) {
+            if (satisfies(dependency, states)) {
                 met++;
             }
         }
@@ -80,15 +65,9 @@ public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<St
         return satisfied(states) >= required();
     }
 
-    /** How many dependencies the rule counts: everything but the optional ones. */
+    /** How many dependencies the rule counts: every edge. */
     public int counted() {
-        int total = 0;
-        for (String dependency : dependencies) {
-            if (!isOptional(dependency)) {
-                total++;
-            }
-        }
-        return total;
+        return dependencies.size();
     }
 
     /**
@@ -104,11 +83,11 @@ public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<St
         return state != null && state.isAtLeast(bar());
     }
 
-    /** The dependencies still short of the bar, in the order they were declared. Optional ones never wait. */
+    /** The dependencies still short of the bar, in the order they were declared. */
     public List<String> waitingFor(Function<String, QuestState> states) {
         List<String> waiting = new ArrayList<>();
         for (String dependency : dependencies) {
-            if (!isOptional(dependency) && !satisfies(dependency, states)) {
+            if (!satisfies(dependency, states)) {
                 waiting.add(dependency);
             }
         }

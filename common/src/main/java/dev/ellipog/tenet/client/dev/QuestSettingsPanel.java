@@ -70,7 +70,8 @@ public final class QuestSettingsPanel {
      *     default (...)" value — because "Default" alone makes an author open the chapter file to find
      *     out what it defaults <i>to</i>
      */
-    public record View(String title, ItemStack icon, String textureIcon, QuestShape shape,
+    public record View(String title, ItemStack icon, String textureIcon, String spriteIcon,
+                        QuestShape shape,
                         Shape geometry, int rotation,
                         int size, double iconScale, boolean showTitle, int hoveredCell,
                        String hoveredKey, String chapterRequirement,
@@ -188,7 +189,8 @@ public final class QuestSettingsPanel {
         // node-edge tokens, and a preview drawn with the state ink would show a border the canvas will
         // not draw -- the exact kind of preview that drifts from the thing it previews.
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(drawn, shape, view.geometry(), view.icon(),
-                view.textureIcon(), iconScale, ArmatureTheme.nodeEdgeAvailable(), 0, 0));
+                view.textureIcon(), view.spriteIcon() == null ? "" : view.spriteIcon(), iconScale,
+                ArmatureTheme.nodeEdgeAvailable(), 0, 0));
 
         if (view.showTitle() && !view.title().isEmpty()) {
             QuestNodeArt.caption(r, x, y, drawn, view.title(), pane.x(), pane.right(),
@@ -522,6 +524,15 @@ public final class QuestSettingsPanel {
                     net.minecraft.resources.ResourceLocation.tryParse(view.textureIcon());
             if (texture != null) {
                 r.texture(texture, strip.x(), strip.y() + (strip.height() - 16) / 2, 16, 16);
+            }
+        }
+        else if (view.spriteIcon() != null && !view.spriteIcon().isEmpty()) {
+            // An atlas region, drawn from the atlas like the node's own: the stack is empty for a
+            // sprite for the same reason it is for a texture.
+            net.minecraft.resources.ResourceLocation sprite =
+                    net.minecraft.resources.ResourceLocation.tryParse(view.spriteIcon());
+            if (sprite != null) {
+                r.sprite(sprite, strip.x(), strip.y() + (strip.height() - 16) / 2, 16, 16, 0xFFFFFFFF);
             }
         }
     }

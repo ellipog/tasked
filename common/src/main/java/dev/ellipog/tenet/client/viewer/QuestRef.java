@@ -15,13 +15,22 @@ import net.minecraft.world.item.ItemStack;
  * <p>{@code icon} may be {@link ItemStack#EMPTY} while {@code iconId} is not: a pack can name an item
  * this build does not have, and the rule the book already follows -- keep it and mark it rather than
  * drop it -- applies here too. A viewer that cannot draw the stack draws {@code iconId} instead of
- * silently losing the row.
+ * silently losing the row. A texture or a sprite travels beside the stack for the same reason the
+ * cache keeps them apart: a picture that was never a stack must not read as a missing item.
  */
-public record QuestRef(String id, String title, String chapterTitle, ItemStack icon, String iconId) {
+public record QuestRef(String id, String title, String chapterTitle, ItemStack icon, String iconId,
+                       String textureIcon, String spriteIcon) {
 
     public QuestRef {
         if (id == null || id.isEmpty()) {
             throw new IllegalArgumentException("a quest reference needs an id");
         }
+        textureIcon = textureIcon == null ? "" : textureIcon;
+        spriteIcon = spriteIcon == null ? "" : spriteIcon;
+    }
+
+    /** The same, for a quest wearing an item: the picture arms stay empty, not null. */
+    public QuestRef(String id, String title, String chapterTitle, ItemStack icon, String iconId) {
+        this(id, title, chapterTitle, icon, iconId, "", "");
     }
 }

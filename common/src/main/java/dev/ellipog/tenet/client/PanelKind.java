@@ -96,6 +96,16 @@ public enum PanelKind {
     SETTINGS,
 
     /**
+     * What a {@code tenet:filter} task accepts: the matches enumerated as rows.
+     *
+     * <p>A rail rather than a page of the quest panel, because it belongs to one row of that
+     * panel rather than to the quest — and rather than a screen of its own, because leaving
+     * the book for a list loses the quest the list is about. Opened from a filter row's press
+     * anywhere on the row; a row press opens the match's recipes where a viewer is installed.
+     */
+    FILTER,
+
+    /**
      * The player's pinned quests: the watchlist beside their settings.
      *
      * <p>A rail of its own rather than a page of the settings card, because the two answer different

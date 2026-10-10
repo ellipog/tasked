@@ -1,7 +1,5 @@
 package dev.ellipog.tenet.quest;
 
-import java.util.function.Consumer;
-
 /**
  * One tree refresh per burst of edits.
  *
@@ -157,14 +155,53 @@ public final class TreeRefresh {
 
     private static volatile Touch dirty = Touch.NONE;
 
+    /**
+     * The chapters a cosmetic refresh would re-read, in the order their ops arrived.
+     *
+     * <p>Only cosmetic touches read this: anything heavier re-reads the whole tree, and a table
+     * touch never names a chapter. Entries are chapter ids as the payloads name them; a blank or
+     * missing chapter is never added, so a cosmetic touch with nothing here still means a full
+     * reload rather than a refresh of nothing. Cleared with the flag, for the same reason and at
+     * the same moment: an edit arriving mid-flush must arm the next one.
+     */
+    private static final java.util.Set<String> dirtyChapters =
+            java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());
+
     /** Marks the loaded tree stale, as far as one edit can tell: the next flush owes {@code touch}. */
     public static void request(Touch touch) {
+        if (!pending()) {
+            firstPendingAt = clock.getAsLong();
+        }
+        lastRequestAt = clock.getAsLong();
         dirty = dirty.strongest(touch);
     }
+
+    /**
+     * Whether a table reload is owed alongside whatever the touch says.
+     *
+     * <p>Separate from the touch because coalescing eats it: a table edit and a quest nudge in one
+     * tick collapse to cosmetic, and a cosmetic flush that re-reads only chapters would drop the
+     * tables on the floor until the next full reload. Read once per flush, by the flush, and
+     * cleared with everything else.
+     */
+    private static volatile boolean tablesDirty = false;
 
     /** The same, for an edit that can only have changed the reward tables. */
     public static void requestTables() {
         request(Touch.TABLES);
+        tablesDirty = true;
+    }
+
+    /**
+     * The same, naming the chapter the edit belongs to: a cosmetic flush re-reads these chapters
+     * instead of the whole tree. A null or blank chapter is the unscoped request above — the op
+     * was about a group, the book, or several chapters, and only a full reload answers those.
+     */
+    public static void request(Touch touch, String chapter) {
+        request(touch);
+        if (chapter != null && !chapter.isBlank()) {
+            dirtyChapters.add(chapter);
+        }
     }
 
     /** Whether a flush is owed. */
@@ -178,6 +215,78 @@ public final class TreeRefresh {
     }
 
     /**
+     * Whether a table reload is owed too, consuming the answer: read once per flush, by the
+     * flush. A tables-only tick answers through the touch itself; a mixed tick needs this beside
+     * it, because the touch it collapsed to no longer says tables.
+     */
+    public static boolean drainTables() {
+        boolean owed = tablesDirty;
+        tablesDirty = false;
+        return owed;
+    }
+
+    /** Forgets everything owed, without running it: {@code /tenet reload} already did the work. */
+    public static void clear() {
+        dirty = Touch.NONE;
+        tablesDirty = false;
+        dirtyChapters.clear();
+        firstPendingAt = -1L;
+        lastRequestAt = 0L;
+    }
+
+    /**
+     * How long a cosmetic-only flush waits after the last edit before it may run, and how long
+     * pending cosmetic edits wait at most.
+     *
+     * <p>One documented place, because the two numbers are one decision: a burst coalesces into
+     * the flush after its last op, and a slow trickle still syncs inside the cap. Anything
+     * heavier than cosmetic ignores both and flushes at once — stored progress may have moved,
+     * and waiting would be staleness rather than coalescing. The price is stated plainly: a
+     * lone edit's broadcast waits out the quiet window too, and only the author's optimistic
+     * drafts make that free for them. A rate limit instead (longest since the last <i>flush</i>)
+     * would space bursts without ever merging them, which answers a different complaint.
+     */
+    static final long COSMETIC_QUIET_MILLIS = 500L;
+    static final long COSMETIC_MAX_MILLIS = 2000L;
+
+    /**
+     * The clock these windows read, millis. {@code System} in production; a test pins its own,
+     * which is what keeps this class game-free-testable — see {@code TreeRefreshTest}.
+     */
+    private static java.util.function.LongSupplier clock = System::currentTimeMillis;
+
+    /** Overrides the clock; tests pin a manual one and restore it afterwards. */
+    static void setClock(java.util.function.LongSupplier clock) {
+        TreeRefresh.clock = clock;
+    }
+
+    /** When the currently pending burst started, or -1 when nothing is owed. */
+    private static volatile long firstPendingAt = -1L;
+
+    /** When the most recent op arrived. */
+    private static volatile long lastRequestAt = 0L;
+
+    /**
+     * Whether the owed refresh may run now.
+     *
+     * <p>Anything heavier than cosmetic is always due: only cosmetic-only flushes wait out the
+     * quiet window (or the staleness cap), because only they are guaranteed to move nothing any
+     * player has stored. The author never waits either way — optimistic drafts cover their own
+     * echo — so the wait only ever delays what <i>other</i> players see, by at most the cap.
+     */
+    public static boolean due() {
+        if (!pending()) {
+            return false;
+        }
+        if (pendingTouch() != Touch.COSMETIC) {
+            return true;
+        }
+        long now = clock.getAsLong();
+        return now - lastRequestAt >= COSMETIC_QUIET_MILLIS
+                || now - firstPendingAt >= COSMETIC_MAX_MILLIS;
+    }
+
+    /**
      * Runs the refresh once if one is owed, and once for any number of requests.
      *
      * <p>The refresh takes the touch rather than being one of two runnables, and that is the shape of
@@ -185,16 +294,26 @@ public final class TreeRefresh {
      * for itself, and the only caller decided it wrongly for every kind of edit there is. Handed the
      * touch, a caller has nothing to decide — see {@link Touch} for what each one owes and why.
      *
+     * <p>The chapters travel beside the touch for the same reason: a cosmetic flush re-reads only
+     * these, and handing them over keeps the flush from having to know which op named what. The set
+     * is a copy in arrival order; the flag's own clear-first-run-second rule covers it too.
+     *
      * <p>The refresh is a parameter rather than a call because the reload and the broadcast need a
      * server, and this class is deliberately about the flag rather than about Minecraft — which is
      * what lets the coalescing be tested without one.
      */
-    public static void flush(Consumer<Touch> refresh) {
+    public static void flush(java.util.function.BiConsumer<Touch, java.util.Set<String>> refresh) {
         Touch owed = dirty;
+        java.util.Set<String> chapters;
+        synchronized (dirtyChapters) {
+            chapters = new java.util.LinkedHashSet<>(dirtyChapters);
+            dirtyChapters.clear();
+        }
         if (owed == Touch.NONE) {
             return;
         }
         dirty = Touch.NONE;
-        refresh.accept(owed);
+        firstPendingAt = -1L;
+        refresh.accept(owed, java.util.Collections.unmodifiableSet(chapters));
     }
 }

@@ -358,7 +358,13 @@ public final class HudOverlay {
     private static void paintTask(GuiRenderer r, Measure measure, Content content,
                                   PinnedPanelLayout.Row row, int left, int top) {
         ItemStack icon = content.icon(row.pinIndex(), row.taskIndex());
-        if (!icon.isEmpty()) {
+        if (row.checkmark()) {
+            // The state box, like the book's own rows: empty while todo, checked once done.
+            dev.ellipog.tenet.client.CheckmarkArt.draw(r, left,
+                    top + (row.height() - PinnedPanelLayout.GAP - PinnedPanelLayout.ICON) / 2,
+                    PinnedPanelLayout.ICON, row.done());
+        }
+        else if (!icon.isEmpty()) {
             r.icon(icon, left, top + (row.height() - PinnedPanelLayout.GAP - PinnedPanelLayout.ICON) / 2,
                     PinnedPanelLayout.ICON);
         }
@@ -519,13 +525,21 @@ public final class HudOverlay {
             List<ItemStack> stacks = new ArrayList<>(entry.tasks().size());
             for (int i = 0; i < entry.tasks().size(); i++) {
                 ClientQuestCache.TaskEntry task = entry.tasks().get(i);
-                tasks.add(new PinnedPanelLayout.Task(task.text().getString(),
+                // A title-less checkmark pins a bare button, like the book's own rows: FTB shows
+                // no sentence, so the pin does not invent one either.
+                String words = task.type().equals("tenet:checkmark") && task.label().isEmpty()
+                        && task.labelArg().isEmpty() ? "" : task.text().getString();
+                tasks.add(new PinnedPanelLayout.Task(words,
                         ClientQuestCache.taskProgressOf(id, i), task.count(),
-                        ClientQuestCache.taskDone(id, i)));
+                        ClientQuestCache.taskDone(id, i),
+                        dev.ellipog.tenet.client.CheckmarkArt.wearsBox(task)));
                 // The author's picture when there is one, else the requirement: the same rule the
                 // book's own rows use, so a stack of oak logs draws as oak logs here too rather than
                 // as a generic task glyph — and a tag task wearing a picture draws the picture.
-                stacks.add(task.shown());
+                // Filters cycle through what they name, one picture a second, like every other
+                // surface: a still first item here while the book cycled would be two answers.
+                ItemStack frame = ClientQuestCache.filterFrame(task);
+                stacks.add(frame.isEmpty() ? task.shown() : frame);
             }
             out.add(new PinnedPanelLayout.Pin(entry.titleText(), entry.chapterTitleText(),
                     ClientQuestCache.stateOf(id) == QuestState.COMPLETED,

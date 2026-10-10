@@ -41,6 +41,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("QuestStructure")
 class QuestStructureTest {
 
+    /**
+     * Applies with blind ops: these fixtures carry no registry-backed components, so plain JSON
+     * judges what the server's registries would. See the same helper in {@code EditorOpsTest}.
+     */
+    private static EditorOps.Applied apply(QuestEditor editor, EditorOp op) {
+        return EditorOps.apply(editor, op, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
     @BeforeAll
     static void bootVanilla() {
         // The validator checks that every item id a document names exists in BuiltInRegistries.ITEM, and
@@ -411,7 +419,7 @@ class QuestStructureTest {
         write("alpha/one/second.json", quest("second", ", \"dependsOn\": [\"first\"]"));
 
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        EditorOps.Applied outcome = EditorOps.apply(editor,
+        EditorOps.Applied outcome = apply(editor,
                 new EditorOp.DuplicateChapter("one", "one_copy", "One Copy"));
 
         assertTrue(outcome.ok(), outcome.messages().toString());
@@ -451,7 +459,7 @@ class QuestStructureTest {
         write("alpha/one/second.json", quest("second", ""));
 
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        EditorOps.Applied outcome = EditorOps.apply(editor,
+        EditorOps.Applied outcome = apply(editor,
                 new EditorOp.DuplicateChapter("one", "one_copy", "One Copy"));
 
         assertTrue(outcome.ok(), outcome.messages().toString());
@@ -476,7 +484,7 @@ class QuestStructureTest {
         write("alpha/one/second.json", quest("twin", ", \"dependsOn\": [\"twin\"]"));
 
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        EditorOps.Applied outcome = EditorOps.apply(editor,
+        EditorOps.Applied outcome = apply(editor,
                 new EditorOp.DuplicateChapter("one", "one_copy", "One Copy"));
 
         assertTrue(outcome.ok(), outcome.messages().toString());
@@ -508,7 +516,7 @@ class QuestStructureTest {
         write("alpha/two/second.json", quest("second", ", \"dependsOn\": [\"first\"]"));
 
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        EditorOps.Applied outcome = EditorOps.apply(editor,
+        EditorOps.Applied outcome = apply(editor,
                 new EditorOp.DuplicateGroup("alpha", "alpha_copy", "Alpha Copy"));
 
         assertTrue(outcome.ok(), outcome.messages().toString());
@@ -532,7 +540,7 @@ class QuestStructureTest {
         tree();
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.DeleteChapter("one"));
+        EditorOps.Applied applied = apply(editor, new EditorOp.DeleteChapter("one"));
 
         assertTrue(applied.ok(), applied.messages().toString());
         assertFalse(Files.exists(root().resolve("alpha/one")), "the chapter is out of the tree");
@@ -566,7 +574,7 @@ class QuestStructureTest {
         write("one.deleted.2/chapter.json", chapter("one", "[]"));
 
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma"));
+        EditorOps.Applied applied = apply(editor, new EditorOp.CreateGroup("gamma", "Gamma"));
         assertTrue(applied.ok(), applied.messages().toString());
 
         String index = indexText();
@@ -585,12 +593,12 @@ class QuestStructureTest {
         tree();
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok());
+        assertTrue(apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok());
         assertTrue(editor.undo(), "the create is on the history");
         assertTrue(Files.isRegularFile(root().resolve("gamma.deleted/group.json")),
                 "the folder is put aside rather than erased");
 
-        assertTrue(EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok(),
+        assertTrue(apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok(),
                 "the name is free again, because a tombstone is not content");
         assertTrue(editor.undo());
         assertTrue(Files.isRegularFile(root().resolve("gamma.deleted/group.json")),
@@ -607,9 +615,9 @@ class QuestStructureTest {
         // point of it: the history is the server's memory and the copy is on disk.
         tree();
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("one")).ok());
+        assertTrue(apply(editor, new EditorOp.DeleteChapter("one")).ok());
 
-        EditorOps.Applied restored = EditorOps.apply(editor,
+        EditorOps.Applied restored = apply(editor,
                 new EditorOp.RestoreRemoved("alpha/one.deleted"));
 
         assertTrue(restored.ok(), restored.messages().toString());
@@ -629,10 +637,10 @@ class QuestStructureTest {
     void restoresASetAsideGroup() throws IOException {
         tree();
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteGroup("beta")).ok());
+        assertTrue(apply(editor, new EditorOp.DeleteGroup("beta")).ok());
         assertTrue(Files.isDirectory(root().resolve("beta.deleted")));
 
-        EditorOps.Applied restored = EditorOps.apply(editor,
+        EditorOps.Applied restored = apply(editor,
                 new EditorOp.RestoreRemoved("beta.deleted"));
 
         assertTrue(restored.ok(), restored.messages().toString());
@@ -645,18 +653,18 @@ class QuestStructureTest {
     void aRestoreRefusesWhatItCannotDo() throws IOException {
         tree();
         QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
-        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("one")).ok());
+        assertTrue(apply(editor, new EditorOp.DeleteChapter("one")).ok());
         Files.createDirectories(root().resolve("alpha/one"));
 
-        EditorOps.Applied taken = EditorOps.apply(editor,
+        EditorOps.Applied taken = apply(editor,
                 new EditorOp.RestoreRemoved("alpha/one.deleted"));
         assertFalse(taken.ok(), "the folder would have been overwritten");
         assertTrue(taken.messages().get(0).contains("already"), taken.messages().toString());
         assertTrue(Files.isDirectory(root().resolve("alpha/one.deleted")), "and the copy stays put");
 
-        assertFalse(EditorOps.apply(editor, new EditorOp.RestoreRemoved("alpha/one")).ok(),
+        assertFalse(apply(editor, new EditorOp.RestoreRemoved("alpha/one")).ok(),
                 "a live folder is not a tombstone");
-        assertFalse(EditorOps.apply(editor, new EditorOp.RestoreRemoved("../outside")).ok(),
+        assertFalse(apply(editor, new EditorOp.RestoreRemoved("../outside")).ok(),
                 "nor is anything outside the root");
     }
 

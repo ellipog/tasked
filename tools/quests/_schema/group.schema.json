@@ -35,7 +35,7 @@
     },
     "icon": {
       "$ref": "#/definitions/icon",
-      "description": "The picture the book draws on this group's row: an item, a texture file, or an entity drawn as its spawn egg. Optional: without it the row falls back to the first chapter under the group."
+      "description": "The picture the book draws on this group's row: an item, a texture file, an atlas region, or an entity drawn as its spawn egg. Optional: without it the row falls back to the first chapter under the group."
     },
     "collapsedByDefault": {
       "type": "boolean",
@@ -71,7 +71,7 @@
     },
 
     "icon": {
-      "description": "What a group shows as its picture: an item, a texture file, or an entity drawn as its spawn egg. An item object is the arm every file written before the union uses, so old files read unchanged.",
+      "description": "What a group shows as its picture: an item, a texture file, an atlas region, or an entity drawn as its spawn egg. An item object is the arm every file written before the union uses, so old files read unchanged.",
       "anyOf": [
         { "$ref": "#/definitions/itemRef" },
         {
@@ -81,6 +81,17 @@
             "texture": {
               "type": "string",
               "description": "A texture file by its own path, e.g. my_pack:textures/gui/emblem.png. Drawn stretched into the icon's box; a path nothing holds draws the missing texture."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["sprite"],
+          "properties": {
+            "sprite": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+              "description": "An atlas region id, e.g. minecraft:block/sculk. Drawn from the atlas into the icon's box; a region nothing holds draws the missing mark."
             }
           }
         },

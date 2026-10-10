@@ -173,6 +173,32 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("the flexible flag arrives resolved, and absent means strict")
+    void flexibleFlagArrives() {
+        // Sparse, like optional: absent means the quest measures only while playable. The
+        // client needs the resolved answer — its own flag or its chapter's default — because
+        // it holds no chapter record, and without it a flexible quest with unmet dependencies
+        // reads UNLOCKED and whole flexible chapters look open.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"defaultFlexibleProgress\": true,",
+                q("chapter_flexible").build(),
+                q("own_flexible").flexibleProgress(true).build()));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertTrue(entryFor("chapter_flexible").flexible(),
+                "the chapter default should resolve onto the quest");
+        assertTrue(entryFor("own_flexible").flexible(), "an explicit flag should survive the wire");
+
+        QuestIndex strict = Fixtures.indexOf(Fixtures.file(q("plain").build()));
+        ClientQuestCache.acceptTree(strict.questCount(), strict.chapterCount(),
+                QuestSync.treeAsJson(strict));
+        assertFalse(entryFor("plain").flexible(), "absent means strict");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"flexible\":true"), "flexible should travel as a boolean");
+    }
+
+    @Test
     @DisplayName("a quest's presentation crosses the wire, with the width resolved against the chapter")
     void presentationFlagsArrive() {
         // The width travels resolved: the quest's own wins, else the chapter's default, else 0 for the
@@ -356,17 +382,20 @@ class QuestSyncTest {
     }
 
     @Test
-    @DisplayName("a quest's texture and entity icons cross the wire with their kind beside them")
+    @DisplayName("a quest's texture, sprite and entity icons cross the wire with their kind beside them")
     void iconKindsArrive() {
         // Absent kind means the item arm, which is every icon a version-17 tree ever sent. A texture
-        // travels as its path with kind "texture"; an entity as its id with kind "entity", resolved
-        // on arrival to its egg.
+        // travels as its path with kind "texture"; a sprite as its id with kind "sprite"; an entity
+        // as its id with kind "entity", resolved on arrival to its egg.
         QuestIndex index = Fixtures.indexOf(Fixtures.file(
                 """
                         {"id": "plain", "title": "Plain"}""",
                 """
                         {"id": "pictured", "title": "Pictured",
                          "icon": {"texture": "my_pack:textures/gui/emblem.png"}}""",
+                """
+                        {"id": "region", "title": "Region",
+                         "icon": {"sprite": "occultism:block/chalk_glyph/0"}}""",
                 """
                         {"id": "creeper", "title": "Creeper",
                          "icon": {"entity": "minecraft:creeper"}}"""));
@@ -378,12 +407,17 @@ class QuestSyncTest {
         assertTrue(entryFor("pictured").icon().isEmpty(), "and no stack pretends to be it");
         assertTrue(entryFor("pictured").iconId().isEmpty(),
                 "so no missing-item branch fires for a picture");
+        assertEquals("occultism:block/chalk_glyph/0", entryFor("region").spriteIcon(),
+                "the sprite id survives the wire beside the kind");
+        assertTrue(entryFor("region").icon().isEmpty(), "and no stack pretends to be it either");
+        assertTrue(entryFor("region").textureIcon().isEmpty(), "nor the other picture arm");
         assertFalse(entryFor("creeper").icon().isEmpty(),
                 "a creeper draws its egg: " + entryFor("creeper").iconId());
         assertEquals("minecraft:creeper", entryFor("creeper").iconId());
 
         String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
         assertTrue(json.contains("\"iconKind\":\"texture\""), "the texture kind travels beside its path");
+        assertTrue(json.contains("\"iconKind\":\"sprite\""), "and the sprite kind beside its id");
         assertTrue(json.contains("\"iconKind\":\"entity\""), "and the entity kind beside its id");
     }
 
@@ -429,6 +463,34 @@ class QuestSyncTest {
         String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
         assertTrue(json.contains("\"textureIcon\":\"my_pack:textures/gui/emblem.png\""),
                 "the texture path travels as its own key");
+    }
+
+    @Test
+    @DisplayName("an author's sprite on a task and a reward crosses the wire beside the stack")
+    void authorSpritesArrive() {
+        // The sprite id travels as its own key, like the texture path beside it; the stack stays
+        // the requirement, so no missing branch fires for a picture.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "q", "title": "Q",
+                         "tasks": [{"type": "tenet:checkmark", "title": "a"},
+                                   {"type": "tenet:checkmark", "title": "b",
+                                    "icon": {"sprite": "occultism:block/chalk_glyph/0"}}],
+                         "rewards": [{"type": "tenet:xp", "amount": 1},
+                                     {"type": "tenet:xp", "amount": 2,
+                                      "icon": {"sprite": "occultism:block/chalk_glyph/0"}}]}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("q");
+        assertTrue(entry.tasks().get(0).spriteIcon().isEmpty(), "a task that says nothing sends none");
+        assertEquals("occultism:block/chalk_glyph/0", entry.tasks().get(1).spriteIcon());
+        assertTrue(entry.tasks().get(1).textureIcon().isEmpty(), "nor the other picture arm");
+        assertTrue(entry.rewards().get(0).spriteIcon().isEmpty());
+        assertEquals("occultism:block/chalk_glyph/0", entry.rewards().get(1).spriteIcon());
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"spriteIcon\":\"occultism:block/chalk_glyph/0\""),
+                "the sprite id travels as its own key");
     }
 
     @Test
@@ -714,6 +776,61 @@ class QuestSyncTest {
         assertEquals(Items.DIAMOND, entry.icon().getItem(), "the explicit icon should cross the wire");
         assertTrue(ClientQuestCache.adoptedQuestIcon(entry).isEmpty(),
                 "an explicit icon blocks adoption");
+    }
+
+    @Test
+    @DisplayName("a kill task naming one mob arrives wearing its egg")
+    void killTaskWearsItsEgg() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:kill\", \"entity\": \"minecraft:creeper\", \"value\": 3} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.TaskEntry task = entryFor("a").tasks().get(0);
+        assertFalse(task.hasItem(), "an egg is a picture, not a requirement");
+        assertEquals("minecraft:creeper_spawn_egg", task.picture().getItem().toString(),
+                "the row draws the mob, not the sword");
+        assertEquals("minecraft:creeper_spawn_egg",
+                ClientQuestCache.adoptedQuestIcon(entryFor("a")).getItem().toString(),
+                "and the iconless quest adopts it");
+    }
+
+    @Test
+    @DisplayName("a tagged or mob-less kill keeps the sword; an author picture still wins")
+    void killEggLimits() {
+        QuestIndex tagged = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:kill\", \"entityTypeTag\": \"minecraft:skeletons\", \"value\": 3} ]}"));
+        ClientQuestCache.acceptTree(tagged.questCount(), tagged.chapterCount(), QuestSync.treeAsJson(tagged));
+        assertTrue(entryFor("a").tasks().get(0).picture().isEmpty(),
+                "a tag names no one mob, so no egg");
+
+        QuestIndex eggless = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:kill\", \"entity\": \"no_such_mod:some_mob\", \"value\": 3} ]}"));
+        ClientQuestCache.acceptTree(eggless.questCount(), eggless.chapterCount(), QuestSync.treeAsJson(eggless));
+        assertTrue(entryFor("a").tasks().get(0).picture().isEmpty(),
+                "an entity with no egg keeps the glyph");
+
+        QuestIndex dressed = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:kill\", \"entity\": \"minecraft:creeper\", \"value\": 3,"
+                        + " \"icon\": {\"item\": \"minecraft:torch\"}} ]}"));
+        ClientQuestCache.acceptTree(dressed.questCount(), dressed.chapterCount(), QuestSync.treeAsJson(dressed));
+        assertEquals(Items.TORCH, entryFor("a").tasks().get(0).picture().getItem(),
+                "an author picture wins over the egg");
+    }
+
+    @Test
+    @DisplayName("a quest of bare checkmarks adopts the type glyph instead of paper")
+    void checkmarkQuestAdoptsGlyph() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:checkmark\", \"title\": \"Read the sign\"} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals(Items.KNOWLEDGE_BOOK, ClientQuestCache.adoptedQuestIcon(entryFor("a")).getItem(),
+                "a book says things to do; paper says nothing");
     }
 
     @Test

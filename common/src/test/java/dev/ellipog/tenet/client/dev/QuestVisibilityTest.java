@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -261,8 +262,7 @@ class QuestVisibilityTest {
 
         @Test
         @DisplayName("the lock mark draws unless the file or the quest hides it (T26)")
-        void lockMark() {
-            assertTrue(QuestVisibility.drawsLockMark(true, false),
+        void lockMark() {            assertTrue(QuestVisibility.drawsLockMark(true, false),
                     "shown file, willing quest: the mark draws");
             assertFalse(QuestVisibility.drawsLockMark(false, false),
                     "a file that hides every mark hides this one");
@@ -270,6 +270,35 @@ class QuestVisibilityTest {
                     "a quest that hides its own mark hides it under a showing file");
             assertFalse(QuestVisibility.drawsLockMark(false, true),
                     "and under a hiding file too: either silence wins");
+        }
+
+        @Test
+        @DisplayName("a flexible quest with unmet dependencies draws gated but stays measurable")
+        void flexibleUnmetDrawsGated() {
+            // The whole of the flexible-chapters-look-open fix: the engine resolves such a
+            // quest UNLOCKED so tasks accumulate, and the chrome reads LOCKED so gates show.
+            // Playability never asks this — submit buttons and completion keep the engine's
+            // states — so this is purely what the node, its label, its padlock and the card's
+            // state word draw as.
+            assertEquals(QuestState.LOCKED,
+                    QuestVisibility.displayState(QuestState.UNLOCKED, true, false));
+            assertEquals(QuestState.LOCKED,
+                    QuestVisibility.displayState(QuestState.STARTED, true, false),
+                    "started on tasks but gated on quests still draws gated");
+            assertEquals(QuestState.UNLOCKED,
+                    QuestVisibility.displayState(QuestState.UNLOCKED, true, true),
+                    "gate open draws as measured");
+            assertEquals(QuestState.UNLOCKED,
+                    QuestVisibility.displayState(QuestState.UNLOCKED, false, true));
+            assertEquals(QuestState.LOCKED,
+                    QuestVisibility.displayState(QuestState.LOCKED, true, false),
+                    "locked stays locked");
+            assertEquals(QuestState.LOCKED,
+                    QuestVisibility.displayState(QuestState.LOCKED, false, true),
+                    "and a strict quest never borrows the other reading");
+            assertEquals(QuestState.COMPLETED,
+                    QuestVisibility.displayState(QuestState.COMPLETED, true, false),
+                    "done draws done whatever the gate says");
         }
 
         @Test

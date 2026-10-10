@@ -363,7 +363,7 @@ public final class QuestViewerContent implements QuestContent {
                 continue;
             }
             QuestRef ref = new QuestRef(entry.id(), entry.titleText(), entry.chapterTitleText(),
-                    entry.icon(), entry.iconId());
+                    entry.icon(), entry.iconId(), entry.textureIcon(), entry.spriteIcon());
             List<QuestRow> tasks = taskRows(entry, ref, index, once);
             List<QuestRow> rewards = rewardRows(entry, ref, index);
             if (!tasks.isEmpty() || !rewards.isEmpty()) {

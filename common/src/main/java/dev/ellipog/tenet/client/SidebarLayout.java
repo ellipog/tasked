@@ -188,6 +188,11 @@ public final class SidebarLayout {
      * ordering belongs to the caller and is not touched here: an outline draws what it is given, and a
      * class that sorted would silently reorder somebody's book.
      *
+     * <p>Chapters with no heading come <b>first</b>, before every group: that is FTB Quests' default
+     * group, which always sorts before the named ones, and a converted pack's welcome chapter only
+     * reads as first when it draws first. Their relative order is the server's, like everything
+     * else here.
+     *
      * <p>A chapter whose {@code groupId} names a heading the server did not send is added as a
      * <b>root</b> rather than dropped. That case is a server bug rather than a client one, and the two
      * available responses are to lose the chapter or to show it at the top level; losing content is the
@@ -247,6 +252,11 @@ public final class SidebarLayout {
         }
 
         Outline<String> outline = Outline.of();
+        // The heading-less chapters first: see the order contract above. A group the server did
+        // not send, or a server older than groups, reads the same way — roots before headings.
+        for (ChapterRow chapter : ungrouped) {
+            outline.add(chapterKey(chapter.id()), null, true);
+        }
         for (Group group : groupsByKey.values()) {
             String key = groupKey(group.id());
             // `expandedByDefault` is the negation of the authored flag, and that inversion is the whole
@@ -255,9 +265,6 @@ public final class SidebarLayout {
             for (ChapterRow chapter : chaptersPerGroup.getOrDefault(key, List.of())) {
                 outline.add(chapterKey(chapter.id()), key, true);
             }
-        }
-        for (ChapterRow chapter : ungrouped) {
-            outline.add(chapterKey(chapter.id()), null, true);
         }
 
         // Once, here, and nowhere else. What the player toggles afterwards belongs to the outline for as

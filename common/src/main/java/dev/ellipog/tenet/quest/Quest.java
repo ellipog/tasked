@@ -28,7 +28,7 @@ import java.util.Optional;
  * }
  * }</pre>
  *
- * <p>The icon is an {@link Icon}: an item, a texture file, or an entity drawn as its egg. A bare
+ * <p>The icon is an {@link Icon}: an item, a texture file, an atlas region, or an entity drawn as its egg. A bare
  * item object is the item arm, so every file written before the union reads unchanged.
  *
  * <h2>Three things here that FTB Quests does not have</h2>
@@ -147,10 +147,11 @@ public record Quest(
     }
 
     /**
-     * Whether this quest gates the quests that depend on it.
+     * Whether this quest is marked a side quest.
      *
-     * <p>An optional dependency counts as neither satisfied nor required: it neither helps nor
-     * blocks its dependants. See {@link QuestRules#optional} and
+     * <p>A marker, not a gate: an optional quest gates the quests that depend on it exactly
+     * like any other quest — FTB Quests' optional only excuses a quest from chapter
+     * completion, never from a prerequisite rule. See {@link QuestRules#optional} and
      * {@link dev.ellipog.tenet.progress.ProgressionEngine}.
      */
     public boolean optional() {

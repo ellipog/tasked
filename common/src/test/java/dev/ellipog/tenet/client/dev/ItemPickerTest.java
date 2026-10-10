@@ -93,6 +93,9 @@ class ItemPickerTest {
         // because deleting only the leaf would leave {"icon": {}}, which the codec refuses too. A
         // task's or a reward's picture override clears the same way, restoring the type's picture.
         assertEquals("icon", ItemPicker.clearPath("icon.item"));
+        assertEquals("icon", ItemPicker.clearPath("icon.texture"));
+        assertEquals("icon", ItemPicker.clearPath("icon.sprite"));
+        assertEquals("icon", ItemPicker.clearPath("icon.entity"));
         assertEquals("tasks.0.icon", ItemPicker.clearPath("tasks.0.icon"));
         assertEquals("rewards.2.icon", ItemPicker.clearPath("rewards.2.icon"));
         assertNull(ItemPicker.clearPath("tasks.0.item"), "an item task needs its item");

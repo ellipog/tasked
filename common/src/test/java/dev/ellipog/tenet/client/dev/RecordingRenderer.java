@@ -48,11 +48,16 @@ final class RecordingRenderer implements GuiRenderer {
     record Textured(ResourceLocation texture, int x, int y, int width, int height) {
     }
 
+    /** One atlas-region draw, as {@link #sprite} was told to draw it. */
+    record Sprited(ResourceLocation sprite, int x, int y, int width, int height) {
+    }
+
     private final List<Fill> fills = new ArrayList<>();
     private final List<Drawn> texts = new ArrayList<>();
     private final Map<ResourceLocation, TextureSize> sizes = new LinkedHashMap<>();
     private final List<Scaled> scaled = new ArrayList<>();
     private final List<Textured> textures = new ArrayList<>();
+    private final List<Sprited> sprites = new ArrayList<>();
     private int batches;
 
     @Override
@@ -158,13 +163,13 @@ final class RecordingRenderer implements GuiRenderer {
     /**
      * {@inheritDoc}
      *
-     * <p>A no-op, for the reason {@link #texture} is one: the panels this recorder exists for draw no sprites,
-     * and a test may draw a panel that happens to contain one. An assertion about which arm a picture element
-     * chose — a file or a sprite — belongs to {@code client.render.RecordingRenderer}, which keeps the two
-     * apart because their lookups fail differently.
+     * <p>Recorded, like every other draw on this recorder: nodes wear atlas sprites now, so a
+     * recorder that dropped them could not tell a sprite icon from no icon. Kept apart from
+     * {@link #texture} because the two lookups fail differently, like the render recorder's.
      */
     @Override
     public void sprite(ResourceLocation atlasSprite, int x, int y, int width, int height, int argb) {
+        sprites.add(new Sprited(atlasSprite, x, y, width, height));
     }
 
     @Override
@@ -229,6 +234,11 @@ final class RecordingRenderer implements GuiRenderer {
     /** The whole-file blits drawn through {@link #texture}, in order. */
     List<Textured> textures() {
         return List.copyOf(textures);
+    }
+
+    /** The atlas regions drawn through {@link #sprite}, in order. */
+    List<Sprited> sprites() {
+        return List.copyOf(sprites);
     }
 
     List<Drawn> texts() {

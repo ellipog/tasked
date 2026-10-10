@@ -68,6 +68,10 @@ public final class QuestNodeArt {
      *                   the cache resolves one arm and keeps the other's half empty. Drawn stretched into
      *                   the icon's box; a path nothing holds draws the game's missing texture, like an
      *                   image element's missing file.
+     * @param sprite     the atlas region drawn in the middle when the icon is a sprite, and empty
+     *                   otherwise. Drawn from the atlas after the texture arm is asked and before the
+     *                   item arm: one picture wins, in the order the cache resolves, and a region
+     *                   nothing holds draws the missing mark like an unheld file.
      * @param iconScale  how much of the node the icon is asked to fill; the outline caps it
      * @param edge       the panel's border colour, from the node's state
      * @param ring       the hover or selection ring's colour, or 0 for none
@@ -76,12 +80,12 @@ public final class QuestNodeArt {
      *                   node is its icon and whose geometry is still a square for the hit test
      */
     public record Look(int size, QuestShape shape, Shape geometry, ItemStack icon, String texture,
-                        double iconScale, int edge, int ring, int wash) {
+                        String sprite, double iconScale, int edge, int ring, int wash) {
 
         /** The item-arm shape, for a caller with no texture: the texture is empty, not null. */
         public Look(int size, QuestShape shape, Shape geometry, ItemStack icon, double iconScale,
                     int edge, int ring, int wash) {
-            this(size, shape, geometry, icon, "", iconScale, edge, ring, wash);
+            this(size, shape, geometry, icon, "", "", iconScale, edge, ring, wash);
         }
     }
 
@@ -180,6 +184,17 @@ public final class QuestNodeArt {
                     net.minecraft.resources.ResourceLocation.tryParse(look.texture());
             if (texture != null) {
                 r.texture(texture, iconBox[0], iconBox[1], iconBox[2], iconBox[2]);
+                drewItem = true;
+            }
+        }
+        if (!drewItem && !look.sprite().isEmpty() && iconBox[2] >= CanvasSettings.iconMinBox()) {
+            // An atlas region, drawn like a chapter element's sprite: the cache keeps the stack
+            // empty for a sprite for the same reason it does for a texture. A region nothing
+            // holds draws the missing mark through the sprite call itself.
+            net.minecraft.resources.ResourceLocation sprite =
+                    net.minecraft.resources.ResourceLocation.tryParse(look.sprite());
+            if (sprite != null) {
+                r.sprite(sprite, iconBox[0], iconBox[1], iconBox[2], iconBox[2], 0xFFFFFFFF);
                 drewItem = true;
             }
         }

@@ -19,8 +19,8 @@ import java.util.Set;
  * record: every task type carries an author title now, and a checkmark's is simply the only one
  * that is ever drawn without an item beside it. The key is unchanged — {@code "title"} sat flat on
  * the task before the shared field existed — so every file written before the move reads the same
- * way. A checkmark that says nothing draws "{@code ?}", which is the honest answer for a button
- * with no words rather than the type's name for itself.
+ * way. A checkmark that says nothing draws a bare button, which is what FTB shows: a "?" would
+ * invent a sentence the author never wrote, and the rows below read the same empty.
  *
  * <p>{@link #required} is one and {@link #current} is always zero, which is what makes it
  * manual-only: no amount of observing the world will ever satisfy it, so the engine's auto-submit
@@ -65,7 +65,7 @@ public record CheckmarkTask(TaskCommon common) implements QuestTask {
     /**
      * The title as plain text — this task has no item to draw.
      *
-     * <p>The author's own title when the task names one, and "{@code ?}" when it does not: the
+     * <p>The author's own title when the task names one, and empty when it does not: the
      * translation <i>fallback</i> rather than the key alone, because a checkmark's title is
      * written by whoever wrote the quest file and is not necessarily translatable at all. Sending both
      * means the client can show the translation when there is one and the author's own words when
@@ -78,5 +78,5 @@ public record CheckmarkTask(TaskCommon common) implements QuestTask {
                             .map(fallback -> TaskDisplay.ofTranslatableText(title.value(), fallback,
                                     1))
                             .orElseGet(() -> TaskDisplay.ofText(title.value(), 1)))
-                    .orElseGet(() -> TaskDisplay.ofText("?", 1));
+                    .orElseGet(() -> TaskDisplay.ofText("", 1));
 }

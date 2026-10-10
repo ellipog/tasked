@@ -206,4 +206,41 @@ class EditReachTest {
         assertEquals(TreeRefresh.Touch.NONE, reach(new EditorOp.Batch(List.of())),
                 "a batch of nothing owes nothing, which is what lets it be coalesced harmlessly");
     }
+
+    @Test
+    @DisplayName("a targeted refresh names the chapter only chapter-scoped ops reach")
+    void refreshChapterNamesChapterScopedOps() {
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.Move("quest", 1, 1), "first_steps"));
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.SetField("quest", "title", VALUE), "first_steps"));
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.SetChapter("title", VALUE), "first_steps"));
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.SetElement("box", "width", VALUE), "first_steps"));
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.SetLink("gate", "x", VALUE), "first_steps"));
+        assertEquals(java.util.Optional.of("first_steps"),
+                EditorOps.refreshChapter(new EditorOp.Batch(List.of(
+                        new EditorOp.Move("quest", 1, 1), new EditorOp.SetField("quest", "x", VALUE))),
+                        "first_steps"),
+                "a gesture of nudges re-reads its one chapter");
+
+        assertEquals(java.util.Optional.empty(),
+                EditorOps.refreshChapter(new EditorOp.SetGroup("icon", VALUE), "first_steps"),
+                "a group is not read from any chapter");
+        assertEquals(java.util.Optional.empty(),
+                EditorOps.refreshChapter(new EditorOp.SetIndex("bookTitle", VALUE), "first_steps"),
+                "and neither is the book");
+        assertEquals(java.util.Optional.empty(),
+                EditorOps.refreshChapter(new EditorOp.Batch(List.of(
+                        new EditorOp.Move("quest", 1, 1),
+                        new EditorOp.SetGroup("icon", VALUE))), "first_steps"),
+                "one group write in the gesture means the whole tree");
+        assertEquals(java.util.Optional.empty(),
+                EditorOps.refreshChapter(new EditorOp.Move("quest", 1, 1), ""),
+                "and a missing chapter names nothing to re-read");
+        assertEquals(java.util.Optional.empty(),
+                EditorOps.refreshChapter(new EditorOp.Move("quest", 1, 1), null));
+    }
 }

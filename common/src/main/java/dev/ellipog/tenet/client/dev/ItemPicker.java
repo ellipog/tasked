@@ -107,7 +107,8 @@ public final class ItemPicker {
      * clear row removes the whole override object it names.
      */
     public static String clearPath(String fieldPath) {
-        if ("icon.item".equals(fieldPath)) {
+        if ("icon.item".equals(fieldPath) || "icon.texture".equals(fieldPath)
+                || "icon.sprite".equals(fieldPath) || "icon.entity".equals(fieldPath)) {
             return "icon";
         }
         if (fieldPath != null && fieldPath.endsWith(".icon")) {

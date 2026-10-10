@@ -1268,6 +1268,33 @@ public final class QuestBookScreen extends ArmatureScreen
     /** The key prefix of a choice offer's rows; the entry's index in the table follows. */
     private static final String CHOICE_PREFIX = "choice:";
 
+    /** The key prefix of a filter list's rows; the match's index follows. */
+    private static final String FILTER_PREFIX = "filter:";
+
+    /**
+     * The accepted-items list's own view, while its rail is open: one row per match the
+     * expression names.
+     *
+     * <p>Its own view for the reason {@link #choiceView} is: the two lists are never open on the
+     * same quest at once in the same scroll position, and a shared view would carry one list's
+     * position into the other.
+     */
+    private final ScrollView filterView = ScrollView.of(Viewport.fixed());
+
+    /** The filter list's rows and layout, for the expression that is open. */
+    private List<InspectRow> filterListRows = List.of();
+    private Layout filterLayout;
+    private int filterLayoutWidth = -1;
+
+    /** The expression the open list was read from; empty when no list is open. */
+    private String filterExpression = "";
+
+    /** The list's row rectangles, from the last frame's own drawing — the press contract. */
+    private final List<BookGeometry.Rect> filterListRects = new ArrayList<>();
+
+    /** The matches the open list's rows name, in row order, from the same pass. */
+    private final List<ItemStack> filterShown = new ArrayList<>();
+
     /**
      * The rewards panel's own list: a chapter accordion whose quests fold open onto their rewards.
      *
@@ -2099,13 +2126,24 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Filter rows whose icon opens the accepted-items preview. Icon boxes only, never the row:
-     * the row's press belongs to the submit button and the recipe target, and a preview that
-     * stole either would be a press that lies about where it lands.
+     * Filter rows that open the accepted-items list. The whole row, icon to text end: a filter
+     * row carries no recipe target ({@code BookRowTargets} answers null for it, since only
+     * {@code tenet:item_tag} tasks send a tag), so nothing competes for the press and the row
+     * that lights up is the row that answers.
      */
     private final List<FilterRow> filterRows = new ArrayList<>();
 
     private record FilterRow(Slot box, String expression) {}
+
+    /**
+     * Checkmark rows that hand in on press. The whole row, like a filter row's: a bare checkmark
+     * carries no recipe target, so nothing competes for the press — and a titled one answers here
+     * only when it has no target either, because a press that could open recipes must keep doing
+     * that. Registered while drawing, read by the click, cleared with the other row lists.
+     */
+    private final List<CheckmarkRow> checkmarkRows = new ArrayList<>();
+
+    private record CheckmarkRow(Slot box, String questId, int taskIndex) {}
 
     /**
      * The reader card's prerequisite rows, from the last frame's drawing: where a press navigates or
@@ -2245,6 +2283,62 @@ public final class QuestBookScreen extends ArmatureScreen
     private String pickingItemPath;
 
     /**
+     * What the open picture picker is showing: one tab of the four arms.
+     *
+     * <p>Only meaningful when the pick is for an icon (see {@code isIconPick}); every other pick —
+     * an item field, a registry search, a table entry — is items-only exactly as before, with no
+     * tabs drawn. The kind resets to ITEM on every open, so a file pick last week does not greet
+     * this week's item field; switching tabs resets that tab's query and selection, because an
+     * index into another tab's list names nothing here (the fresh-list rule the texture picker
+     * already follows).
+     */
+    /* Package-visible for the picker tests: the tabs are screen state, the payloads are not. */
+    enum PickerKind { ITEM, FILE, SPRITE, ENTITY }
+
+    private PickerKind pickerKind = PickerKind.ITEM;
+
+    /** Per-tab queries beside the item picker's, so switching tabs starts each list fresh. */
+    private String pickerEntityQuery = "";
+    private String pickerFileQuery = "";
+
+    /** The tab strip's rectangles from the last frame's own drawing — the press contract. */
+    private final Map<PickerKind, BookGeometry.Rect> pickerTabRects =
+            new java.util.EnumMap<>(PickerKind.class);
+
+    /** The tab strip's height, in pixels: one row of four tabs under the picker's header. */
+    private static final int PICKER_TAB_STRIP = 16;
+
+    /**
+     * Whether the open pick is for an icon rather than an item: the dock's chapter/group/book
+     * picks always are, and a quest pick is when its path names an icon object (the quest's own,
+     * the book's, or a task's or reward's override). Only icon picks draw the kind tabs; every
+     * other pick is items-only exactly as before. Table icons are item-only by schema, so a
+     * table pick never qualifies even though its path says "icon".
+     */
+    private boolean isIconPick() {
+        if (tablePickPath != null) {
+            return false;
+        }
+        if (pickTarget != null && pickTarget != PickTarget.QUEST) {
+            return true;
+        }
+        return isIconPath(pickingItemPath);
+    }
+
+    /**
+     * Whether a quest field path names an icon object: the quest's own, the book's, or a task's
+     * or reward's override.
+     *
+     * <p>Pure, so the picker tests pin which paths greet with tabs: an icon path is any path the
+     * icon commits write whole objects to, and the two shapes are the quest's own {@code icon}
+     * (leaf or book) and an entry's {@code icon} object.
+     */
+    static boolean isIconPath(String path) {
+        return "icon.item".equals(path) || "bookIcon".equals(path)
+                || (path != null && path.endsWith(".icon"));
+    }
+
+    /**
      * What the open picker is listing, when it is not items.
      *
      * <p>A search field -- a dimension, a biome, a statistic -- opens the same card, the same list and the
@@ -2311,6 +2405,9 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private ItemStack pickIcon = ItemStack.EMPTY;
     private String pickName = "";
+    /** The picker's subject picture when it wears a texture or a sprite icon. */
+    private String pickTexture = "";
+    private String pickSprite = "";
 
     /** The value that field holds now, for the clear row; empty when there is none. */
     private String pickingItemCurrent = "";
@@ -2974,6 +3071,7 @@ public final class QuestBookScreen extends ArmatureScreen
             int iconY = top + 9 - (icon - 8) / 2;
             ItemStack stack = ClientQuestCache.bookIcon();
             String texture = ClientQuestCache.bookTextureIcon();
+            String sprite = ClientQuestCache.bookSpriteIcon();
             if (!stack.isEmpty()) {
                 r.icon(stack, left + BookGeometry.HEADER_INSET, iconY, icon);
             }
@@ -2981,6 +3079,11 @@ public final class QuestBookScreen extends ArmatureScreen
                     && net.minecraft.resources.ResourceLocation.tryParse(texture) != null) {
                 r.texture(net.minecraft.resources.ResourceLocation.parse(texture),
                         left + BookGeometry.HEADER_INSET, iconY, icon, icon);
+            }
+            else if (!sprite.isEmpty()
+                    && net.minecraft.resources.ResourceLocation.tryParse(sprite) != null) {
+                r.sprite(net.minecraft.resources.ResourceLocation.parse(sprite),
+                        left + BookGeometry.HEADER_INSET, iconY, icon, icon, 0xFFFFFFFF);
             }
             else {
                 int x = left + BookGeometry.HEADER_INSET;
@@ -3315,23 +3418,31 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * One sidebar row's icon: the stack to draw, the id it was resolved from, and the texture path
-     * when the row wears a texture icon.
+     * One sidebar row's icon: the stack to draw, the id it was resolved from, the texture path
+     * when the row wears a texture icon, and the atlas region when it wears a sprite.
      *
-     * <p>The trio, for the same reason {@link ClientQuestCache.Entry} keeps it: a stack that failed to
+     * <p>The quartet, for the same reason {@link ClientQuestCache.Entry} keeps it: a stack that failed to
      * resolve with an id behind it is a <b>missing item</b>, which the row can say on hover, while an
      * empty id is simply no icon, which it cannot. One is a broken pack worth chasing and the other is
      * a chapter that never declared one. A texture draws through the button's blit rather than its
      * stack, so the id stays empty for one and no missing branch fires for a picture.
      */
-    private record SidebarIcon(ItemStack stack, String id, String texture) {
+    private record SidebarIcon(ItemStack stack, String id, String texture, String sprite) {
 
-        /** The button's texture, or null when the row wears an item or nothing. */
+        /** The button's texture, or null when the row wears an item, a sprite or nothing. */
         net.minecraft.resources.ResourceLocation textureId() {
             if (texture == null || texture.isEmpty()) {
                 return null;
             }
             return net.minecraft.resources.ResourceLocation.tryParse(texture);
+        }
+
+        /** The button's atlas region, or null when the row wears an item, a texture or nothing. */
+        net.minecraft.resources.ResourceLocation spriteId() {
+            if (sprite == null || sprite.isEmpty()) {
+                return null;
+            }
+            return net.minecraft.resources.ResourceLocation.tryParse(sprite);
         }
     }
 
@@ -3355,7 +3466,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // The explicit chapter list first, when the server sent one: it has an icon for every chapter,
         // including a chapter with no quests -- which is the one row that cannot borrow one from a quest.
         for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
-            SidebarIcon icon = new SidebarIcon(chapter.icon(), chapter.iconId(), chapter.textureIcon());
+            SidebarIcon icon = new SidebarIcon(chapter.icon(), chapter.iconId(), chapter.textureIcon(),
+                    chapter.spriteIcon());
             if (!chapter.groupId().isEmpty()) {
                 firstChapter.putIfAbsent(chapter.groupId(), icon);
             }
@@ -3363,7 +3475,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             SidebarIcon icon = new SidebarIcon(entry.chapterIcon(), entry.chapterIconId(),
-                    entry.chapterTextureIcon());
+                    entry.chapterTextureIcon(), entry.chapterSpriteIcon());
             if (!entry.chapterGroupId().isEmpty()) {
                 firstChapter.putIfAbsent(entry.chapterGroupId(), icon);
             }
@@ -3371,7 +3483,8 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
             SidebarIcon authored =
-                    new SidebarIcon(group.icon(), group.iconId(), group.textureIcon());
+                    new SidebarIcon(group.icon(), group.iconId(), group.textureIcon(),
+                            group.spriteIcon());
             SidebarIcon shown = authored.id().isEmpty()
                     ? firstChapter.getOrDefault(group.id(), authored) : authored;
             icons.put(SidebarLayout.groupKey(group.id()), shown);
@@ -7373,6 +7486,15 @@ public final class QuestBookScreen extends ArmatureScreen
         return ClientQuestCache.iconOf(chapterIconId(chapter), icon.get("components"));
     }
 
+    /** One arm of an `icon` object as stored, or empty when it names none. */
+    private static String iconString(JsonObject owner, String arm) {
+        if (owner == null || !owner.has("icon") || !owner.get("icon").isJsonObject()) {
+            return "";
+        }
+        JsonElement found = owner.getAsJsonObject("icon").get(arm);
+        return found != null && found.isJsonPrimitive() ? found.getAsString() : "";
+    }
+
     /**
      * Opens the item picker on the chapter's icon, from the dock.
      *
@@ -7391,6 +7513,8 @@ public final class QuestBookScreen extends ArmatureScreen
         readChapterIdentity(chapter);
         pickTarget = PickTarget.CHAPTER;
         pickIcon = chapterIcon;
+        pickTexture = iconString(chapter, "texture");
+        pickSprite = iconString(chapter, "sprite");
         pickName = chapterHeader.title();
         pickingItemPath = ChapterPanelLayout.ICON;
         pickingItemCurrent = chapterIconId;
@@ -7420,6 +7544,17 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         pickTarget = PickTarget.GROUP;
         pickIcon = groupIconStack(group);
+        pickTexture = "";
+        pickSprite = "";
+        // The authored arms, from the tree's own group list: the info above carries only the item
+        // id, and a group wearing a texture would otherwise greet with a blank header.
+        for (ClientQuestCache.GroupEntry listed : ClientQuestCache.groups()) {
+            if (listed.id().equals(group.id())) {
+                pickTexture = listed.textureIcon();
+                pickSprite = listed.spriteIcon();
+                break;
+            }
+        }
         pickName = group.title();
         pickingItemPath = ChapterPanelLayout.ICON;
         pickingItemCurrent = group.iconId();
@@ -7439,6 +7574,8 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         pickTarget = PickTarget.BOOK;
         pickIcon = ClientQuestCache.bookIcon();
+        pickTexture = ClientQuestCache.bookTextureIcon();
+        pickSprite = ClientQuestCache.bookSpriteIcon();
         pickName = bookTitle().getString();
         pickingItemPath = "bookIcon";
         pickingItemCurrent = ClientQuestCache.bookIconId();
@@ -7458,6 +7595,8 @@ public final class QuestBookScreen extends ArmatureScreen
         pickerQuery = "";
         pickerSelected = -1;
         pickerBody.setScrollY(0);
+        // The dock's icon picks greet on items too; the tabs offer the rest.
+        pickerKind = PickerKind.ITEM;
         // A pick is filed by the rules like everything else: column 2 when there is a panel for it to
         // belong to, column 1 when there is not -- which is what makes a pick opened from the author's dock
         // a panel beside the dock rather than a child that could fold it away.
@@ -9001,6 +9140,9 @@ public final class QuestBookScreen extends ArmatureScreen
             else if (icon != null && icon.textureId() != null) {
                 button.texture(icon.textureId());
             }
+            else if (icon != null && icon.spriteId() != null) {
+                button.sprite(icon.spriteId());
+            }
             else if (icon != null && !icon.id().isEmpty()) {
                 button.tooltip(List.of(Component.translatable("tenet.screen.missing_item_hint")));
             }
@@ -9613,6 +9755,7 @@ public final class QuestBookScreen extends ArmatureScreen
             case SETTINGS -> buildSettingsWidgets();
             case PINNED -> buildPinnedWidgets();
             case ELEMENT -> buildElementWidgets();
+            case FILTER -> buildFilterWidgets();
             case ASSETS, NONE, CHOICE -> {
                 // Nothing of its own: the assets list is drawn from its layout, and a choice is a card,
                 // which this method is never asked about.
@@ -9662,6 +9805,8 @@ public final class QuestBookScreen extends ArmatureScreen
                         ClientChapterReplica.chapterTree(effectiveChapter()));
                 readChapterIdentity(chapter);
                 pickIcon = chapterIcon;
+                pickTexture = iconString(chapter, "texture");
+                pickSprite = iconString(chapter, "sprite");
                 pickName = chapterHeader.title();
                 pickingItemCurrent = chapterIconId;
             }
@@ -9669,6 +9814,15 @@ public final class QuestBookScreen extends ArmatureScreen
                 ChapterPanelLayout.GroupInfo group = chapterGroupInfo(effectiveChapter());
                 if (group != null) {
                     pickIcon = groupIconStack(group);
+                    pickTexture = "";
+                    pickSprite = "";
+                    for (ClientQuestCache.GroupEntry listed : ClientQuestCache.groups()) {
+                        if (listed.id().equals(group.id())) {
+                            pickTexture = listed.textureIcon();
+                            pickSprite = listed.spriteIcon();
+                            break;
+                        }
+                    }
                     pickName = group.title();
                     pickingItemCurrent = group.iconId();
                 }
@@ -9677,6 +9831,8 @@ public final class QuestBookScreen extends ArmatureScreen
                 // No file to re-read: the tree's own values are the current ones, and the rebuild this
                 // sits in is what keeps them from going stale.
                 pickIcon = ClientQuestCache.bookIcon();
+                pickTexture = ClientQuestCache.bookTextureIcon();
+                pickSprite = ClientQuestCache.bookSpriteIcon();
                 pickName = bookTitle().getString();
                 pickingItemCurrent = ClientQuestCache.bookIconId();
             }
@@ -9862,7 +10018,19 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             try (GuiRenderer.Scoped clip = r.clip(bodyRect.x(), bodyRect.y(), bodyRect.right(),
                     bodyRect.bottom())) {
-                r.text("Search items \u2014 name or id", frame.search().x() + 4,
+                // The box's own question, per tab: on a picture pick the box filters files, takes a
+                // sprite id, or filters mobs — and "search items" on those tabs would be the box
+                // lying about what it does.
+                String hint = "Search items \u2014 name or id";
+                if (pickerTabsVisible()) {
+                    hint = switch (pickerKind) {
+                        case FILE -> Labels.of("tenet.dev.texture.hint");
+                        case SPRITE -> Labels.of("tenet.dev.picker.sprite_hint");
+                        case ENTITY -> Labels.of("tenet.dev.picker.entities_hint");
+                        case ITEM -> hint;
+                    };
+                }
+                r.text(hint, frame.search().x() + 4,
                         frame.search().y() + (frame.search().height() - 8) / 2,
                         ArmatureTheme.faint());
             }
@@ -10119,7 +10287,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 dev.ellipog.tenet.client.dev.FieldDraft.CHAPTER_OWNER,
                 ClientChapterReplica.chapterTree(entry.chapterId()));
         return new dev.ellipog.tenet.client.dev.QuestSettingsPanel.View(titleOf(entry), entry.icon(),
-                entry.textureIcon(),
+                entry.textureIcon(), entry.spriteIcon(),
                 shape, previewGeometry(shape, rotation), rotation, size, iconScale, showTitle,
                 hoveredCell, hoveredKey,
                 entry.chapterDefaultPrerequisiteMode().name().toLowerCase(java.util.Locale.ROOT),
@@ -11041,6 +11209,12 @@ public final class QuestBookScreen extends ArmatureScreen
      * kinds that do.
      */
     private static String rowText(String member, ClientQuestCache.TaskEntry task) {
+        // A title-less checkmark draws its bare button: FTB shows no sentence, so neither does
+        // this, and the "?" for genuinely-missing labels stays where it belongs — everywhere else.
+        if (task.type().equals("tenet:checkmark") && task.label().isEmpty()
+                && task.labelArg().isEmpty()) {
+            return "";
+        }
         String arg = task.labelArg();
         return arg.isEmpty()
                 ? task.text().getString()
@@ -12456,6 +12630,8 @@ public final class QuestBookScreen extends ArmatureScreen
         itemSearch = null;
         pickerSelected = -1;
         pickerBody.setScrollY(0);
+        // A search pick is never an icon pick: no tabs, whatever the last pick was.
+        pickerKind = PickerKind.ITEM;
         placeArmedPick();
         rebuildWidgets();
     }
@@ -12492,6 +12668,9 @@ public final class QuestBookScreen extends ArmatureScreen
         itemSearch = null;
         pickerSelected = -1;
         pickerBody.setScrollY(0);
+        // Items first, every time: the tabs greet an icon pick on the arm every icon picker before
+        // this one chose, and a file tab left over would list textures for an item field.
+        pickerKind = PickerKind.ITEM;
         placeArmedPick();
         rebuildWidgets();
     }
@@ -12560,6 +12739,7 @@ public final class QuestBookScreen extends ArmatureScreen
         pickingItemPath = null;
         pickingItemCurrent = "";
         pickingItemClearPath = null;
+        pickerKind = PickerKind.ITEM;
         pickerEntries = List.of();
         pickerInventory = List.of();
         pickerMatches = List.of();
@@ -12588,6 +12768,206 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         closeItemPicker();
         rebuildWidgets();
+    }
+
+    /** A press on a file row: a texture sets the icon, the clear row removes it. */
+    private void pressFileRow(int index) {
+        if (index < 0 || index >= textureRows.size()) {
+            return;
+        }
+        ItemPickerLayout.Row row = textureRows.get(index);
+        if (!ItemPickerLayout.pickable(row)) {
+            return;
+        }
+        if (row.kind() == ItemPickerLayout.Kind.CLEAR) {
+            commitPicker(null, 1);
+            return;
+        }
+        commitFileText(row.id());
+    }
+
+    /**
+     * A file id as an icon: committed when the pack holds it, refused with the reason when not.
+     *
+     * <p>The canvas picker's rule, for icons: a background must draw, and so must a node — a
+     * texture nothing holds draws nothing on both, so the list stays open with the refusal
+     * beside it rather than closing over the reason. The row stays, so the spelling can be
+     * fixed rather than retyped.
+     */
+    private void commitFileText(String typed) {
+        String raw = typed == null ? "" : typed.trim();
+        if (raw.isEmpty()) {
+            status(Labels.of("tenet.dev.texture.hint"), true);
+            return;
+        }
+        if (textureCatalogue().stream().noneMatch(entry -> entry.id().equalsIgnoreCase(raw))) {
+            status("No texture at " + raw, true);
+            return;
+        }
+        commitIconObject(iconObjectForKind(PickerKind.FILE, raw));
+    }
+
+    /**
+     * The sprite tab's Enter: the box's own text becomes the icon.
+     *
+     * <p>Shape-checked before anything is sent: an unparseable id is a file the loader refuses,
+     * and the box keeps the text so the spelling can be fixed. A parseable id nothing holds
+     * commits anyway — the preview already shows the missing mark it will draw, which is the
+     * consent a deliberate choice needs.
+     */
+    private void commitSpriteText(String typed) {
+        String raw = typed == null ? "" : typed.trim();
+        if (raw.isEmpty()) {
+            status(Labels.of("tenet.dev.picker.sprite_hint"), true);
+            return;
+        }
+        if (net.minecraft.resources.ResourceLocation.tryParse(raw) == null) {
+            status(Labels.of("tenet.dev.picker.sprite_bad"), true);
+            return;
+        }
+        JsonObject icon = new JsonObject();
+        icon.addProperty("sprite", raw);
+        commitIconObject(icon);
+    }
+
+    /**
+     * One icon object written to whatever the pick is for: the quest's field, the chapter's,
+     * the group's, or the book's.
+     *
+     * <p>Whole objects, because the arms are exclusive and choosing one is what clears the
+     * others: a leaf write would leave the old arm beside the new one, and the codec would
+     * silently draw only the winner. The server clears siblings too, so an old client writing
+     * leaves cannot corrupt a file either — but the draft here is what the preview follows
+     * before the server answers, so this write is already whole.
+     */
+    private void commitIconObject(JsonObject icon) {
+        if (pickTarget != null && pickTarget != PickTarget.QUEST) {
+            commitDockIcon(icon);
+            return;
+        }
+        String quest = editTarget();
+        String path = pickingItemPath;
+        String clearPath = pickingItemClearPath;
+        closeItemPicker();
+        if (!mayEditNow() || quest == null || path == null) {
+            rebuildWidgets();
+            return;
+        }
+        if (icon == null) {
+            if (clearPath == null) {
+                status("tenet.status.that_field_cannot_be_cleared", true);
+                rebuildWidgets();
+                return;
+            }
+            sendField(quest, clearPath, null);
+            status("tenet.status.cleared", false);
+            rebuildWidgets();
+            return;
+        }
+        String objectPath = null;
+        if ("icon.item".equals(path)) {
+            objectPath = "icon";
+        }
+        else if (("tasks".equals(memberOf(path)) || "rewards".equals(memberOf(path)))
+                && path.endsWith(".icon")) {
+            objectPath = path;
+        }
+        if (objectPath == null) {
+            // Not an icon path with an icon kind: the tabs that lead here are hidden for such
+            // picks, so this is unreachable — refused rather than written somewhere guessed.
+            status("tenet.status.that_field_cannot_be_cleared", true);
+            rebuildWidgets();
+            return;
+        }
+        sendField(quest, objectPath, icon);
+        status("Set to " + describeIcon(icon), false);
+        rebuildWidgets();
+    }
+
+    /**
+     * The dock's icon whole: the book's, the group's, or the chapter's file.
+     *
+     * <p>The item picker's own shape for these targets (see {@code commitDockPicker}), with the
+     * object already built: the arms differ only in which key the object carries, and the files
+     * they land in are the same three.
+     */
+    private void commitDockIcon(JsonObject icon) {
+        String word = icon == null ? "" : describeIcon(icon);
+        if (pickTarget == PickTarget.BOOK) {
+            closeItemPicker();
+            if (!mayEditNow()) {
+                rebuildWidgets();
+                return;
+            }
+            sendBookField("bookIcon", icon);
+            status(icon == null ? "tenet.status.cleared" : "Set to " + word, false);
+            rebuildWidgets();
+            return;
+        }
+        boolean group = pickTarget == PickTarget.GROUP;
+        closeItemPicker();
+        if (!mayEditNow()) {
+            rebuildWidgets();
+            return;
+        }
+        if (icon == null) {
+            if (group) {
+                send(new EditorOp.SetGroup("icon", null));
+            }
+            else {
+                sendChapterField("icon", null);
+            }
+            status("tenet.status.cleared", false);
+            rebuildWidgets();
+            return;
+        }
+        if (group) {
+            send(new EditorOp.SetGroup("icon", icon));
+        }
+        else {
+            sendChapterField("icon", icon);
+        }
+        status("Set to " + word, false);
+        rebuildWidgets();
+    }
+
+    /**
+     * An icon object in one line, for the status: whichever arm it carries.
+     *
+     * <p>Pure, so the picker tests pin it: every commit path says the same sentence for the
+     * same picture, and a whole object never reaches a status line as JSON.
+     */
+    static String describeIcon(JsonObject icon) {
+        if (icon == null) {
+            return "";
+        }
+        for (String arm : new String[] {"item", "texture", "sprite", "entity"}) {
+            if (icon.has(arm) && icon.get(arm).isJsonPrimitive()) {
+                return icon.get(arm).getAsString();
+            }
+        }
+        return icon.toString();
+    }
+
+    /**
+     * The whole icon object one tab's commit writes, or null for clear.
+     *
+     * <p>Pure, for the same reason as {@code describeIcon}: the four tabs' payloads are pinned
+     * without a screen. An item pick keeps its components and is built by its own branch (a
+     * sword is an id <i>and</i> its data); a picture is one key, always.
+     */
+    static JsonObject iconObjectForKind(PickerKind kind, String id) {
+        if (id == null) {
+            return null;
+        }
+        JsonObject icon = new JsonObject();
+        switch (kind) {
+            case FILE -> icon.addProperty("texture", id);
+            case SPRITE -> icon.addProperty("sprite", id);
+            case ENTITY -> icon.addProperty("entity", id);
+            case ITEM -> icon.addProperty("item", id);
+        }
+        return icon;
     }
 
     /** A press on a picker row: an item sets the field, the clear row removes it, a heading nothing. */
@@ -12624,6 +13004,29 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private void commitFromPicker() {
         String query = itemSearch == null ? "" : itemSearch.value();
+        if (pickerTabsVisible() && pickerKind == PickerKind.SPRITE) {
+            // No rows to walk: the box's own text is the answer, shape-checked by the commit.
+            commitSpriteText(query);
+            return;
+        }
+        if (pickerTabsVisible() && pickerKind == PickerKind.FILE) {
+            // The keyboard's row first, then a typed id: the same rule the item tab reads by,
+            // on this tab's own rows rather than the item list's.
+            if (textureSelected >= 0 && textureSelected < textureRows.size()) {
+                ItemPickerLayout.Row fileRow = textureRows.get(textureSelected);
+                if (ItemPickerLayout.pickable(fileRow)) {
+                    if (fileRow.kind() == ItemPickerLayout.Kind.CLEAR) {
+                        commitPicker(null, 1);
+                    }
+                    else {
+                        commitFileText(fileRow.id());
+                    }
+                    return;
+                }
+            }
+            commitFileText(query);
+            return;
+        }
         String exact = ItemPicker.exactId(query, pickerMatches);
         if (exact != null) {
             // A whole id typed is one of the thing, the way a catalogue row is: there is no stack behind
@@ -12662,6 +13065,13 @@ public final class QuestBookScreen extends ArmatureScreen
         // card's item fields have. The count too, when the entry being made is new: see `itemEntry`.
         if (tablePickPath != null) {
             commitTablePick(id, id == null ? "" : pickedDataOf(id), count);
+            return;
+        }
+        if (pickerKind == PickerKind.ENTITY && isIconPick()) {
+            // An entity for a picture, from a row or a typed id alike: the whole object, never a
+            // bare id — a string where the codec reads an object is a file that will not load.
+            // Null is clear, through the same clear path the rows use.
+            commitIconObject(id == null ? null : iconObjectForKind(PickerKind.ENTITY, id));
             return;
         }
         String quest = editTarget();
@@ -12712,8 +13122,8 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         else if ("icon.item".equals(path)) {
             // The item arm, merged over what is there but with the other arms dropped: a pick replaces
-            // whatever the icon wore — a texture or an entity choice does not linger beside the new
-            // item, because the codec reads the item arm first and the validator would report the
+            // whatever the icon wore — a texture, sprite or entity choice does not linger beside the
+            // new item, because the codec reads the item arm first and the validator would report the
             // leftover as unknown. The count is kept, because the picker chooses the item, not how many.
             JsonObject icon = new JsonObject();
             JsonElement existing = QuestPanelLayout.get(replicaQuest(), "icon");
@@ -12722,6 +13132,7 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             icon.addProperty("item", id);
             icon.remove("texture");
+            icon.remove("sprite");
             icon.remove("entity");
             if (components == null) {
                 icon.remove("components");
@@ -12843,6 +13254,20 @@ public final class QuestBookScreen extends ArmatureScreen
     private void drawItemPicker(GuiRenderer r, Viewport body, int mouseX, int mouseY) {
         BookGeometry.Rect bodyRect = BookGeometry.Rect.at(body.originX(), body.originY(),
                 body.viewWidth(), body.viewHeight());
+        boolean tabs = pickerTabsVisible();
+        if (tabs) {
+            // The strip's own rows: under the search box (which filters, or on Sprites is, the
+            // tab's content) and above the list, so the frame, the rows, the scroll and the bar
+            // all follow without a second inset anywhere.
+            int tabBottom = overlayBody().originY() + ItemPickerLayout.SEARCH_HEIGHT + 2
+                    + PICKER_TAB_STRIP + 1;
+            bodyRect = BookGeometry.Rect.at(bodyRect.x(), tabBottom, bodyRect.width(),
+                    Math.max(0, bodyRect.y() + bodyRect.height() - tabBottom));
+        }
+        if (tabs && (pickerKind == PickerKind.FILE || pickerKind == PickerKind.SPRITE)) {
+            drawPictureTab(r, bodyRect, mouseX, mouseY);
+            return;
+        }
         pickerFrame = ItemPickerLayout.Frame.of(bodyRect);
         String query = itemSearch == null ? "" : itemSearch.value();
         if (!query.equals(pickerQuery)) {
@@ -12876,8 +13301,10 @@ public final class QuestBookScreen extends ArmatureScreen
                         pickingItemClearPath != null),
                 typedCandidate, query,
                 // The item picker's own rule for its results (null), and the search field's own words for
-                // its list -- see ItemPickerLayout#compose.
-                pickerSource == null ? null : EditorSpecs.label(pickerSource.name()));
+                // its list -- see ItemPickerLayout#compose. The entity tab names its own heading: the
+                // source's name reads as one entity, and this list is all of them.
+                pickerKind == PickerKind.ENTITY ? Labels.of("tenet.dev.picker.entities")
+                        : pickerSource == null ? null : EditorSpecs.label(pickerSource.name()));
         bindList(pickerBody, pickerBar, pickerFrame.list(), pickerFrame.scrollbar(),
                 ItemPickerLayout.contentHeight(pickerRows), ItemPickerLayout.ROW_HEIGHT);
         int pickerScroll = pickerBody.scrollY();
@@ -12904,16 +13331,134 @@ public final class QuestBookScreen extends ArmatureScreen
                 return;
             }
             drawPickerRows(r, pickerFrame, pickerRows, pickerScroll, pickerSelected, mouseX, mouseY,
-                    this::itemIconOf, row -> row.kind() == ItemPickerLayout.Kind.MISSING);
+                    pickerKind == PickerKind.ENTITY ? this::entityIconOf : this::itemIconOf,
+                    row -> row.kind() == ItemPickerLayout.Kind.MISSING);
         }
         // The list's bar, in the strip the frame kept for it: outside the clip, so its groove is the
         // full height of the list rather than the part of it that happens to be on screen.
         drawBar(r, pickerBar, mouseX, mouseY);
     }
 
+    /** The sprite tab's clear row from the last frame's own drawing — the press contract. */
+    private BookGeometry.Rect spriteClearRect;
+
+    /**
+     * The Sprite tab: the box's own text drawn from the atlas, live.
+     *
+     * <p>No list, because the atlas is not catalogued client-side: the author types an id and
+     * the preview shows exactly what the node will draw, missing mark and all. That preview is
+     * the validation no server check can give — a region nothing holds announces itself here
+     * rather than on the canvas later. Enter commits; the verdict line says what Enter will do.
+     */
+    private void drawSpriteTab(GuiRenderer r, BookGeometry.Rect bodyRect, int mouseX, int mouseY) {
+        String value = itemSearch == null ? "" : itemSearch.value().trim();
+        spriteClearRect = null;
+        int x = bodyRect.x() + 4;
+        int y = bodyRect.y() + 6;
+        int box = 48;
+        r.fill(x, y, x + box, y + box, ArmatureTheme.recessed());
+        net.minecraft.resources.ResourceLocation id =
+                value.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(value);
+        if (id != null) {
+            r.sprite(id, x, y, box, box, 0xFFFFFFFF);
+        }
+        Measure measure = textMeasure(r);
+        int textY = y + box + 6;
+        if (value.isEmpty()) {
+            r.text(Measure.truncate(Labels.of("tenet.dev.picker.sprite_hint"),
+                    bodyRect.width() - 8, measure), x, textY, ArmatureTheme.faint());
+        }
+        else if (id == null) {
+            r.text(Measure.truncate(Labels.of("tenet.dev.picker.sprite_bad"),
+                    bodyRect.width() - 8, measure), x, textY, ArmatureTheme.blocked());
+        }
+        else {
+            r.text(Measure.truncate(value, bodyRect.width() - 8, measure), x, textY,
+                    ArmatureTheme.body());
+            r.text(Measure.truncate(Labels.of("tenet.dev.picker.sprite_live"),
+                    bodyRect.width() - 8, measure), x, textY + 10, ArmatureTheme.faint());
+        }
+        if (pickingItemClearPath != null) {
+            // Clear lives here too, so a sprite author never has to visit Items to remove the
+            // picture: the commit below already knows the clear path.
+            BookGeometry.Rect clear = BookGeometry.Rect.at(x, textY + 26,
+                    Math.max(60, r.textWidth(Labels.of("tenet.dev.picker.clear")) + 12), 14);
+            spriteClearRect = clear;
+            if (clear.contains(mouseX, mouseY)) {
+                drawEditAffordance(r, clear, true);
+            }
+            r.text(Labels.of("tenet.dev.picker.clear"), clear.x() + 6, clear.y() + 3,
+                    ArmatureTheme.body());
+        }
+    }
+
     /** An item row's icon: the stack the id names, or nothing when the build cannot draw it. */
     private ItemStack itemIconOf(String id) {
         return itemStack(id);
+    }
+
+    /** An entity row's icon: its spawn egg, or nothing when it names none. */
+    private ItemStack entityIconOf(String id) {
+        if (id == null || id.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        // The vanilla convention the cache's own egg lookup reads: an entity with no egg draws
+        // no icon rather than a placeholder, because the id is valid and only the picture is
+        // missing — the row a type with no icon gets, by the shared row contract.
+        return itemStack(id + "_spawn_egg");
+    }
+
+    /**
+     * The File tab's list and the Sprite tab's preview: the picture tabs' bodies.
+     *
+     * <p>Files list the pack's textures through the texture picker's own catalogue and rows --
+     * the same list the canvas picker draws, so the two cannot disagree about what a pack
+     * holds. Sprites have no list (the atlas is not catalogued); the tab is a preview of the
+     * box's own text, which is exactly what the node will draw, missing mark and all.
+     */
+    private void drawPictureTab(GuiRenderer r, BookGeometry.Rect bodyRect, int mouseX, int mouseY) {
+        if (pickerKind == PickerKind.SPRITE) {
+            drawSpriteTab(r, bodyRect, mouseX, mouseY);
+            return;
+        }
+        String query = itemSearch == null ? "" : itemSearch.value();
+        if (!query.equals(pickerFileQuery)) {
+            // A keystroke is a new list, like the item tab's: the selection goes back to nothing
+            // pickable-by-position and the scroll to the top.
+            pickerFileQuery = query;
+            textureSelected = -1;
+            textureBody.setScrollY(0);
+        }
+        textureMatches = ItemPicker.rank(textureCatalogue(), query, ItemPicker.LIMIT);
+        List<ItemPickerLayout.Row> rows = new ArrayList<>(
+                TexturePicker.rows(textureCatalogue(), "", query));
+        if (pickingItemClearPath != null) {
+            // Clear lives on every tab, not only Items: an author on Files must not have to leave
+            // to remove the picture, and the commit below already knows the clear path.
+            rows.add(0, ItemPickerLayout.Row.of(ItemPickerLayout.Kind.CLEAR, "",
+                    Labels.of("tenet.dev.picker.clear"),
+                    Labels.of("tenet.dev.picker.clear_detail")));
+        }
+        textureRows = List.copyOf(rows);
+        textureFrame = ItemPickerLayout.Frame.of(bodyRect);
+        bindList(textureBody, textureBar, textureFrame.list(), textureFrame.scrollbar(),
+                ItemPickerLayout.contentHeight(textureRows), ItemPickerLayout.ROW_HEIGHT);
+        if (textureSelected >= 0) {
+            textureSelected = ItemPickerLayout.clamp(textureRows, textureSelected);
+        }
+        try (GuiRenderer.Scoped clip = r.clip(textureFrame.list().x(), textureFrame.list().y(),
+                textureFrame.list().right(), textureFrame.list().bottom())) {
+            if (textureRows.isEmpty()) {
+                r.text(Labels.of("tenet.dev.texture.hint"),
+                        textureFrame.list().x() + 4, textureFrame.list().y() + 4,
+                        ArmatureTheme.faint());
+                return;
+            }
+            drawPickerRows(r, textureFrame, textureRows, textureBody.scrollY(), textureSelected,
+                    mouseX, mouseY, this::itemIconOf,
+                    row -> row.kind() == ItemPickerLayout.Kind.MISSING);
+        }
+        drawBar(r, textureBar, mouseX, mouseY);
     }
 
     /**
@@ -12967,6 +13512,15 @@ public final class QuestBookScreen extends ArmatureScreen
                 // No item behind the id: a placeholder where the icon would be, and the note that
                 // says so. The id itself is the label, so it is kept and visible either way.
                 drawItemPlaceholder(r, rect.x() + 1, rect.y() + 1, Math.max(8, rect.height() - 2));
+                textX = rect.x() + 20;
+            }
+            else if (row.kind() == ItemPickerLayout.Kind.TEXTURE) {
+                // A file's thumbnail in the row's own square, at its aspect: the one thing an id
+                // cannot say. The texture picker's own loop draws the same branch; the two stay
+                // one branch so a file row reads alike in both pickers.
+                int box = Math.max(8, rect.height() - 2);
+                ToolsPanel.drawTextureThumb(r, new Slot(row.id(), rect.x() + 1, rect.y() + 1,
+                        box, box), row.id(), textureSizes);
                 textX = rect.x() + 20;
             }
             else {
@@ -13836,7 +14390,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         boolean showLockIcons = ClientQuestCache.showLockIcons();
         for (ClientQuestCache.Entry quest : visible) {
-            if (ClientQuestCache.stateOf(quest.id()) != QuestState.LOCKED) {
+            if (shownState(quest) != QuestState.LOCKED) {
                 continue;
             }
             if (!dev.ellipog.tenet.client.dev.QuestVisibility.drawsLockMark(showLockIcons,
@@ -21098,6 +21652,8 @@ public final class QuestBookScreen extends ArmatureScreen
         pickTarget = null;
         pickTitle = "";
         pickIcon = ItemStack.EMPTY;
+        pickTexture = "";
+        pickSprite = "";
         pickName = "";
     }
 
@@ -21486,10 +22042,11 @@ public final class QuestBookScreen extends ArmatureScreen
         // The regions nest harmlessly: `GuiGraphicsRenderer.batched` counts its depth, because
         // `drawManaged` ends whatever region it is inside. The canvas's own region and the controls' are
         // now inner ones and cost nothing extra.
-        renderer.batched(() -> {
-            renderWith(renderer, hoverX, hoverY, partialTick);
-            return null;
-        });
+        // The canvas caption, carried out of the batch above: what the pointer hovered, for the
+        // TOOLTIP_Z band below. Read here rather than re-derived there, because the hover is this
+        // frame's and a second hit test could answer differently.
+        CanvasCaption captioned =
+                renderer.batched(() -> renderWith(renderer, hoverX, hoverY, partialTick));
 
 
         // Everything from here on is the **chrome layer**, and it is drawn at a raised Z. Read the
@@ -21738,6 +22295,18 @@ public final class QuestBookScreen extends ArmatureScreen
             // happens to reach past.
             pose.pushPose();
             pose.translate(0F, 0F, TOOLTIP_Z - CHROME_Z);
+            // The canvas captions first, outside the themed block below: a caption is a label about
+            // a node, not part of it, so it keeps the book's own ink rather than the chapter's —
+            // and at this Z it beats depth-writing pictures by the same arithmetic tooltips do,
+            // instead of losing to them however much later it is drawn.
+            if (captioned != null) {
+                if (captioned.quest() != null) {
+                    drawNodeCaption(renderer, captioned.quest());
+                }
+                if (captioned.link() != null) {
+                    drawLinkCaption(renderer, captioned.link());
+                }
+            }
             // The notices first, so a tooltip -- which is what the pointer is asking for -- stays on top.
             // They keep the main theme: a toast is the book talking, not the chapter.
             drawToasts(renderer, Util.getMillis());
@@ -21961,18 +22530,22 @@ public final class QuestBookScreen extends ArmatureScreen
      * drawn</i>, so a scope that leaks shows up as chrome drawn in a chapter's colours rather than as a
      * missing call. {@code ArmatureTheme.scopeDepth} is the blunt check for the same thing.
      */
-    public void renderWith(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
+    public CanvasCaption renderWith(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
         // **Tenet's look, scoped to Tenet's drawing.** The theme is an instance this mod owns now, and
         // this is where it reaches the toolkit: a scope opened around the whole of the book's own drawing,
         // closed however this returns. Another mod's screens open their own and see their own -- which is
         // the property the library had made impossible by holding one global theme for everybody.
+        //
+        // The canvas caption comes back up rather than drawing here: tests driving this method ignore
+        // the return, `render` draws it at TOOLTIP_Z, and drawing order over widgets is not something
+        // RecordingRenderer observes (see the tooltips note in renderBook).
         try (ArmatureTheme.Scope look = ArmatureTheme.scope(ClientAppearance.LOOK.main())) {
-            renderBook(renderer, mouseX, mouseY, partialTick);
+            return renderBook(renderer, mouseX, mouseY, partialTick);
         }
     }
 
     /** The book's own drawing, inside the look's scope. See {@link #renderWith}. */
-    private void renderBook(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
+    private CanvasCaption renderBook(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
         centreCanvas();
 
         // A tree that arrived since the sidebar was built means the outline is describing a questline
@@ -22015,7 +22588,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // tried and erased the card. Both are worth keeping in view: the fault was real, and its cause
         // was that a post-process leaves the pipeline set for its own passes, so the one layer drawn
         // with no clip of its own had nothing to draw into. `GuiRenderer.blur` puts the pipeline back.
-        drawBook(renderer, mouseX, mouseY, now);
+        CanvasCaption captioned = drawBook(renderer, mouseX, mouseY, now);
 
         // The scrim and the tools panel used to be drawn here, and both moved into `render`'s raised-Z
         // layer -- the same move, for the same reason, as the view cluster's backing panel: a fill at
@@ -22050,6 +22623,11 @@ public final class QuestBookScreen extends ArmatureScreen
         // could catch, because drawing order over widgets is not something RecordingRenderer observes.
         // A screenshot found it in five seconds, which is the honest argument for looking at the UI
         // as well as testing it.
+        //
+        // The canvas caption travels the same way: what drawBook names hoverable comes back up so
+        // `render` can draw it at TOOLTIP_Z, where it beats depth-writing pictures by depth rather
+        // than by order. See CanvasCaption.
+        return captioned;
     }
     /**
      * The party panel, whichever face it is showing.
@@ -22403,7 +22981,7 @@ public final class QuestBookScreen extends ArmatureScreen
         return sentence != null ? sentence : ToolsLayout.help(key);
     }
 
-    private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
+    private CanvasCaption drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
         // The server's own answer for a moved node arrives with a tree, and that is the moment the editor's
         // remembered position is no longer needed. Noticed here rather than in a handler because this is a
         // comparison of two numbers on the frame path that already reads them.
@@ -22578,7 +23156,7 @@ public final class QuestBookScreen extends ArmatureScreen
             Component message = Component.translatable(key);
             r.centredText(message.getString(), left + SIDEBAR_WIDTH + (panelW - SIDEBAR_WIDTH) / 2,
                     top + panelH / 2, ArmatureTheme.body());
-            return;
+            return null;
         }
 
         // **Skipped for a modal, and drawn beside a docked column**, which is the whole of the difference
@@ -22594,9 +23172,10 @@ public final class QuestBookScreen extends ArmatureScreen
         // are 3D renders that write depth 150 above their pose, and the column is drawn at `CHROME_Z` (400),
         // which clears them by the arithmetic that constant already documents. The sidebar and the header
         // stay in both arrangements, because those are what "have it in the background" is about: where you
-        // are, not what you were looking at.
+        // are, not what you were looking at. Null unless the canvas below names something hoverable.
+        CanvasCaption captioned = null;
         if (chapter != null) {
-            drawCanvas(r, mouseX, mouseY, questsIn(chapter), now);
+            captioned = drawCanvas(r, mouseX, mouseY, questsIn(chapter), now);
         }
 
         // The canvas is done, and the view cluster's backing panel is *not* drawn here any more.
@@ -22611,6 +23190,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // before the chrome layer is queued, so the two are in separate batches and nothing about the
         // chrome depends on how the canvas happened to batch.
         r.flush();
+        // No canvas, no caption: the modal and the empty states above name nothing hoverable.
+        return captioned;
     }
 
     /**
@@ -22743,8 +23324,20 @@ public final class QuestBookScreen extends ArmatureScreen
     // The canvas
     // ------------------------------------------------------------------
 
-    private void drawCanvas(GuiRenderer r, int mouseX, int mouseY, List<ClientQuestCache.Entry> quests,
-                            long now) {
+    /**
+     * What the canvas asks to have captioned: the hovered quest and the hovered link's slot, or
+     * nulls when the pointer names neither.
+     *
+     * <p>Returned rather than drawn because captions belong over everything, at {@code TOOLTIP_Z}
+     * in {@code render}: a caption drawn here, at canvas Z, loses the depth test wherever a
+     * depth-writing picture sits — which is how node textures ended up covering the title they
+     * name. The values are this frame's, so there is no stale caption when the canvas is hidden.
+     */
+    private record CanvasCaption(ClientQuestCache.Entry quest, LinkSlot link) {
+    }
+
+    private CanvasCaption drawCanvas(GuiRenderer r, int mouseX, int mouseY,
+                                     List<ClientQuestCache.Entry> quests, long now) {
         ClientQuestCache.Entry hovered;
 
         // Clipped to the canvas, so a node panned past the edge is cut off at the edge rather than
@@ -22766,9 +23359,10 @@ public final class QuestBookScreen extends ArmatureScreen
         // player's own theme — that is what lets a themed canvas and an ordinary sidebar be visible in
         // the same frame with no precedence rule between them.
         //
-        // The node caption below is deliberately outside. It is a label floating over the canvas in the
-        // same family as a tooltip, and a caption that changed colour with the chapter would read as
-        // part of the node it names rather than as a label about it.
+        // The node caption is deliberately outside all of this (see CanvasCaption): it is a label
+        // floating over the canvas in the same family as a tooltip, and a caption that changed
+        // colour with the chapter would read as part of the node it names rather than as a label
+        // about it.
         try (GuiRenderer.Scoped clip = r.clip(canvasLeft(), canvasTop(), canvasRight(), canvasBottom());
              ArmatureTheme.Scope theme = ArmatureTheme.scope(viewportTheme())) {
             // Everything on the canvas in **one batch**, and the placement is the whole correctness
@@ -22782,20 +23376,10 @@ public final class QuestBookScreen extends ArmatureScreen
             hovered = r.batched(() -> drawCanvasContents(r, mouseX, mouseY, quests, now));
         }
 
-        // The hovered quest's name, drawn outside the clip so it is never cut off by the canvas edge.
-        // A node is an icon and nothing else, so without this the canvas is a wall of unlabelled
-        // squares until you click one.
-        if (hovered != null) {
-            drawNodeCaption(r, hovered);
-        }
-        // And the hovered link's target: what the press will open, for the same reason. A marker
-        // without a caption is a node whose quest the reader cannot learn without opening it.
-        if (hoveredQuestLink != null) {
-            LinkSlot slot = linkSlot(hoveredQuestLink);
-            if (slot != null) {
-                drawLinkCaption(r, slot);
-            }
-        }
+        // No caption here: see CanvasCaption. The hovered link's slot is resolved now, while the
+        // frame that placed it is current, so the render pass has nothing to look up.
+        LinkSlot link = hoveredQuestLink == null ? null : linkSlot(hoveredQuestLink);
+        return new CanvasCaption(hovered, link);
     }
 
     /** The canvas's own drawing, inside the clip. Returns the hovered node, for the caption above. */
@@ -23009,7 +23593,7 @@ public final class QuestBookScreen extends ArmatureScreen
 
     private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover, float flash,
                           CanvasDetail detail) {
-        QuestState state = ClientQuestCache.stateOf(entry.id());
+        QuestState state = shownState(entry);
         int size = nodeSize(entry);
         int x = nodeScreenX(entry);
         int y = nodeScreenY(entry);
@@ -23076,6 +23660,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 // empty outline. See CanvasSettings and QuestNodeArt.
                 nodeIcon,
                 entry.textureIcon(),
+                entry.spriteIcon(),
                 fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
                 edge, ring, wash));
 
@@ -23111,7 +23696,7 @@ public final class QuestBookScreen extends ArmatureScreen
             ring = ArmatureTheme.selectedRing();
         }
         QuestLinkArt.draw(new QuestLinkArt.Frame(r, viewport()), slot.slot(), slot.target().icon(),
-                slot.target().textureIcon(), state, ring);
+                slot.target().textureIcon(), slot.target().spriteIcon(), state, ring);
     }
 
     /** A dashed one-pixel square around a node that is hidden from players. */
@@ -23242,7 +23827,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 continue;
             }
 
-            QuestState state = ClientQuestCache.stateOf(entry.id());
+            QuestState state = shownState(entry);
             int textColour = switch (state) {
                 case LOCKED -> ArmatureTheme.blocked();
                 case COMPLETED -> ArmatureTheme.complete();
@@ -24654,6 +25239,11 @@ public final class QuestBookScreen extends ArmatureScreen
             // A list of the pack's tables is chrome, like the item picker's list of the registry's
             // items: it is about the pack rather than about the chapter behind it.
             drawTableBrowser(r, mouseX, mouseY);
+        }
+        else if (kind == PanelKind.FILTER) {
+            // A list of what one filter row accepts: chrome, like the picker's — about the row
+            // rather than about the chapter behind it.
+            drawFilterPanel(r, mouseX, mouseY);
         }
         else if (kind == PanelKind.TABLE_EDITOR) {
             drawTableEditor(r, mouseX, mouseY);
@@ -26536,11 +27126,23 @@ public final class QuestBookScreen extends ArmatureScreen
 
         // The subject's icon and name, so the card says what it is about: the row the press came from is
         // behind it, and "Pick an item" alone would not say which chapter's or group's icon is being set.
+        // A texture or a sprite draws in the same box by the node's own priority, so a chapter wearing
+        // either greets with its picture rather than a blank.
         int iconBox = HEADER_ICON;
         int iconX = left + 14;
         int iconY = top + (46 - iconBox) / 2;
+        net.minecraft.resources.ResourceLocation pickTextureId =
+                pickTexture.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(pickTexture);
+        net.minecraft.resources.ResourceLocation pickSpriteId =
+                pickSprite.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(pickSprite);
         if (!pickIcon.isEmpty()) {
             r.icon(pickIcon, iconX, iconY, iconBox);
+        }
+        else if (pickTextureId != null) {
+            r.texture(pickTextureId, iconX, iconY, iconBox, iconBox);
+        }
+        else if (pickSpriteId != null) {
+            r.sprite(pickSpriteId, iconX, iconY, iconBox, iconBox, 0xFFFFFFFF);
         }
         int textX = iconX + iconBox + 6;
         // What the pick is for, in the caller's words; the target's own sentence is the fallback for the
@@ -26567,11 +27169,135 @@ public final class QuestBookScreen extends ArmatureScreen
         // same card, the same header and the same footer with a different list, because that is what the
         // button beside `+ Item` now does.
         if (typePageOpen()) {
+            // No tabs over the type list: the strip belongs to picture picks, and a stale
+            // rectangle would answer presses for a list that is not on screen.
+            pickerTabRects.clear();
             drawTypePicker(r, BookGeometry.Rect.at(overlayBody().originX(), overlayBody().originY(),
                     overlayBody().viewWidth(), overlayBody().viewHeight()), mouseX, mouseY);
         }
         else {
+            if (pickerTabsVisible()) {
+                drawPickerTabs(r, mouseX, mouseY);
+            }
+            else {
+                pickerTabRects.clear();
+            }
             drawItemPicker(r, overlayBody(), mouseX, mouseY);
+        }
+    }
+
+    /** Whether the picker is choosing a picture: the tabs greet icon picks and no other pick. */
+    private boolean pickerTabsVisible() {
+        return isIconPick() && !typePageOpen() && pickingItemPath != null;
+    }
+
+    /**
+     * The four arms as tabs under the picker's header: Item, File, Sprite, Entity.
+     *
+     * <p>One control for "the quest's picture" rather than one control per arm: an author thinks
+     * in pictures, and the arm is the file's business. The strip reads the kind, and the press
+     * below answers it; the rectangles are kept for the press, like every drawn control here.
+     *
+     * <p>Under the search box, above the list: the box filters (or, on Sprites, <i>is</i>) the
+     * tab's content, so the strip sits between the question and its answer rather than above
+     * both. The list below insets past it (see the draw dispatch), so no row hides under a tab.
+     */
+    private void drawPickerTabs(GuiRenderer r, int mouseX, int mouseY) {
+        int left = overlayLeft();
+        int width = overlayWidth();
+        int y = overlayBody().originY() + ItemPickerLayout.SEARCH_HEIGHT + 2;
+        pickerTabRects.clear();
+        PickerKind[] kinds = PickerKind.values();
+        int tabWidth = width / kinds.length;
+        for (int i = 0; i < kinds.length; i++) {
+            int x = left + i * tabWidth;
+            int w = i == kinds.length - 1 ? left + width - x : tabWidth;
+            BookGeometry.Rect rect = BookGeometry.Rect.at(x, y, w, PICKER_TAB_STRIP);
+            pickerTabRects.put(kinds[i], rect);
+            boolean selected = pickerKind == kinds[i];
+            if (selected) {
+                r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.recessed());
+            }
+            else if (rect.contains(mouseX, mouseY)) {
+                drawEditAffordance(r, rect, true);
+            }
+            String label = switch (kinds[i]) {
+                case ITEM -> Labels.of("tenet.dev.picker.tab_item");
+                case FILE -> Labels.of("tenet.dev.picker.tab_file");
+                case SPRITE -> Labels.of("tenet.dev.picker.tab_sprite");
+                case ENTITY -> Labels.of("tenet.dev.picker.tab_entity");
+            };
+            r.text(label, rect.x() + (rect.width() - r.textWidth(label)) / 2,
+                    rect.y() + (rect.height() - 8) / 2,
+                    selected ? ArmatureTheme.title() : ArmatureTheme.faint());
+        }
+        r.fill(left + 1, y + PICKER_TAB_STRIP, left + width - 1, y + PICKER_TAB_STRIP + 1,
+                ArmatureTheme.panelEdge());
+    }
+
+    /**
+     * A press on the tab strip: the kind changes and that tab's list starts fresh.
+     *
+     * <p>Fresh because an index into another tab's list names nothing here: the query box is
+     * cleared and the draw loop rebuilds the list from the empty query, which is the fresh-list
+     * rule the texture picker already follows. Pressing the open tab changes nothing.
+     */
+    private boolean pressPickerTab(double mouseX, double mouseY) {
+        for (Map.Entry<PickerKind, BookGeometry.Rect> tab : pickerTabRects.entrySet()) {
+            if (tab.getValue().contains(mouseX, mouseY)) {
+                if (tab.getKey() != pickerKind) {
+                    pickerKind = tab.getKey();
+                    if (itemSearch != null) {
+                        itemSearch.setValue("");
+                    }
+                    pickerSelected = -1;
+                    pickerBody.setScrollY(0);
+                    textureSelected = -1;
+                    textureBody.setScrollY(0);
+                    preparePickerTab();
+                    rebuildWidgets();
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The newly opened tab's list state: what rows it draws from.
+     *
+     * <p>Items re-list the catalogue and what is carried; entities list the entity registry
+     * through the same search-picker shape registry fields use (first rows on an empty box,
+     * ranked past that); files and sprites keep the texture picker's own state, read at draw
+     * from the shared box. Sources are nulled for the picture tabs so no registry branch in
+     * the shared commit paths can mistake them for a field search.
+     */
+    private void preparePickerTab() {
+        if (pickerKind == PickerKind.ENTITY) {
+            pickerSource = EditorField.Source.ENTITY;
+            pickerObserveType = "";
+            pickerEntries = SearchCatalogue.list(EditorField.Source.ENTITY, "");
+            pickerInventory = List.of();
+            pickerMatches = List.of();
+            pickerRows = List.of();
+            pickerFrame = null;
+            pickerQuery = "";
+            pickerEntityQuery = "";
+        }
+        else if (pickerKind == PickerKind.ITEM) {
+            pickerSource = null;
+            pickerObserveType = "";
+            pickerEntries = catalogue();
+            pickerInventory = carried();
+            pickerMatches = List.of();
+            pickerRows = List.of();
+            pickerFrame = null;
+            pickerQuery = "";
+        }
+        else {
+            pickerSource = null;
+            pickerObserveType = "";
+            pickerFileQuery = "";
         }
     }
 
@@ -26607,7 +27333,7 @@ public final class QuestBookScreen extends ArmatureScreen
 
         // --- header ---
 
-        QuestState state = ClientQuestCache.stateOf(entry.id());
+        QuestState state = shownState(entry);
         // The header icon is drawn to its own box, and the text starts after that box, so the two are
         // the same layout decision. The title used to start at a hardcoded left+38 with a 16px icon at
         // left+14, which is 8px of gap -- close enough to look intentional and not derived from
@@ -26616,7 +27342,8 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconX = left + 14;
         int iconY = top + (46 - iconBox) / 2;
         ItemStack headerIcon = entry.icon();
-        if (headerIcon.isEmpty() && entry.iconId().isEmpty() && entry.textureIcon().isEmpty()) {
+        if (headerIcon.isEmpty() && entry.iconId().isEmpty() && entry.textureIcon().isEmpty()
+                && entry.spriteIcon().isEmpty()) {
             // No icon in any arm: the first task's picture, cycling for a filter — the same
             // adoption the node draws, so the header and the canvas agree.
             headerIcon = ClientQuestCache.adoptedQuestIcon(entry);
@@ -26636,6 +27363,13 @@ public final class QuestBookScreen extends ArmatureScreen
             // empty for a texture, so the item path below would draw nothing.
             r.texture(net.minecraft.resources.ResourceLocation.parse(entry.textureIcon()),
                     iconX, iconY, iconBox, iconBox);
+        }
+        else if (!entry.spriteIcon().isEmpty()
+                && net.minecraft.resources.ResourceLocation.tryParse(entry.spriteIcon()) != null) {
+            // An atlas region draws from the atlas: the stack is empty for a sprite for the same
+            // reason it is for a texture.
+            r.sprite(net.minecraft.resources.ResourceLocation.parse(entry.spriteIcon()),
+                    iconX, iconY, iconBox, iconBox, 0xFFFFFFFF);
         }
         else {
             r.icon(headerIcon, iconX, iconY, iconBox);
@@ -26712,6 +27446,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // cleared after drawing would always be empty by the time a click asks.
         rowItems.clear();
         filterRows.clear();
+        checkmarkRows.clear();
         dependencyTargets.clear();
         try (GuiRenderer.Scoped clip = r.clip(body)) {
             drawProse(r, layout, body, mouseX, mouseY);
@@ -26740,7 +27475,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // What the reader may see, from the same rules the canvas hides quests with. The editor never
         // comes through here -- it builds its own stack with everything in it -- because an author
         // looking at a card must see every field they can edit.
-        QuestState state = ClientQuestCache.stateOf(entry.id());
+        QuestState state = shownState(entry);
         boolean text = dev.ellipog.tenet.client.dev.QuestVisibility
                 .showsText(entry.hideTextUntilComplete(), state);
         boolean details = dev.ellipog.tenet.client.dev.QuestVisibility
@@ -27183,8 +27918,25 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * A press on a filter row's icon: the accepted-items preview opens, and the press is
-     * consumed. Only when something matches — an empty expression has no preview to show,
+     * A press on a checkmark row: the task is handed in, exactly as its Submit button would.
+     *
+     * <p>FTB lets the row itself be the button, and so does this: the press goes through the same
+     * {@code submit} (pending marks and all), so a double press cannot hand in twice and the row
+     * stops offering the moment the first press lands.
+     */
+    private boolean pressCheckmarkRow(double mouseX, double mouseY) {
+        for (CheckmarkRow row : checkmarkRows) {
+            if (row.box().contains(mouseX, mouseY)) {
+                submit(row.questId(), row.taskIndex());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A press anywhere on a filter row: the accepted-items list opens beside the quest, and the
+     * press is consumed. Only when something matches — an empty expression has no list to show,
      * and the tooltip already says so, so the press falls through to whatever else answers.
      */
     private boolean pressFilterRow(double mouseX, double mouseY) {
@@ -27194,9 +27946,138 @@ public final class QuestBookScreen extends ArmatureScreen
                 if (matches.isEmpty()) {
                     return false;
                 }
-                net.minecraft.client.Minecraft.getInstance().setScreen(
-                        new dev.ellipog.tenet.client.FilterPreviewScreen(
-                                matches.shown(), matches.total(), matches.truncated(), this));
+                openFilterPanel(preview.expression());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Opens the accepted-items list for one expression, in the second column beside the quest.
+     *
+     * <p>Asking for the same list twice re-reads it rather than stacking anything:
+     * {@code afterOpen} answers "already open" with the arrangement unchanged, so the expression
+     * swap and the scroll reset have to happen here rather than in the transition.
+     */
+    private void openFilterPanel(String expression) {
+        filterExpression = expression;
+        filterLayout = null;
+        filterView.scrollTo(0);
+        applyColumns(PanelStack.afterOpen(columns(), PanelKind.FILTER));
+        rebuildWidgets();
+    }
+
+    /** Closes the accepted-items list, dropping the expression it was read from. */
+    private void closeFilterPanel() {
+        filterExpression = "";
+        filterLayout = null;
+        applyColumns(PanelStack.afterClose(columns(), true));
+        rebuildWidgets();
+    }
+
+    /** The list's own footer: one Back control, like every child rail's. */
+    private void buildFilterWidgets() {
+        ArmatureButton back = control(overlayControls(false).get("back"),
+                Component.translatable("tenet.screen.back"), this::closeFilterPanel);
+        if (back != null) {
+            back.ink(ArmatureButton.Ink.BODY)
+                    .tooltip(Component.translatable("tenet.screen.escape_also_closes_this"));
+        }
+    }
+
+    /**
+     * The accepted-items list: one row per match the open expression names.
+     *
+     * <p>Drawn like the choice card — the panel, the header strip, the rule under it — with the
+     * match count for a header, because the question the list answers is "what does this accept".
+     * Rows are item plus hover name, the book row's own idiom; a row press opens the match's
+     * recipes where a viewer is installed.
+     */
+    private void drawFilterPanel(GuiRenderer r, int mouseX, int mouseY) {
+        int left = overlayLeft();
+        int top = overlayTop();
+        int w = overlayWidth();
+        int h = overlayHeight();
+
+        ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, 45, ArmatureTheme.raised(),
+                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
+        r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
+
+        var matches = dev.ellipog.tenet.client.FilterMatches.of(filterExpression);
+        String heading = matches.total() == 1 ? "1 accepted item" : matches.total() + " accepted items";
+        if (matches.truncated()) {
+            heading += " (first " + matches.shown().size() + " shown)";
+        }
+        Measure measure = textMeasure(r);
+        r.text(Measure.truncate(heading, w - 28, measure), left + 14, top + 12, ArmatureTheme.title());
+
+        Viewport body = overlayBody();
+        if (filterLayout == null || filterLayoutWidth != body.viewWidth()) {
+            List<InspectRow> rows = new ArrayList<>();
+            for (int i = 0; i < matches.shown().size(); i++) {
+                rows.add(InspectRow.action(FILTER_PREFIX + i,
+                        matches.shown().get(i).getHoverName().getString()));
+            }
+            filterListRows = List.copyOf(rows);
+            filterLayout = InspectLayout.build(filterListRows, body.viewWidth(),
+                    Measure.monospace(6, 9));
+            filterLayoutWidth = body.viewWidth();
+            filterView.clear();
+            filterView.whole(true);
+            filterView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
+                    body.viewHeight());
+            filterView.apply(filterLayout, body.viewWidth());
+        }
+        filterView.apply(filterLayout, body.viewWidth());
+        filterListRects.clear();
+        filterShown.clear();
+        try (GuiRenderer.Scoped clip = r.clip(body.originX(), body.originY(), body.originX() + body.viewWidth(),
+                body.originY() + body.viewHeight())) {
+            for (int i = 0; i < filterListRows.size(); i++) {
+                var slot = filterLayout.slot(filterListRows.get(i).key());
+                if (slot == null) {
+                    continue;
+                }
+                var onScreen = InspectLayout.onScreen(filterView.viewport(), slot);
+                BookGeometry.Rect rect = BookGeometry.Rect.at(onScreen.x(), onScreen.y(),
+                        onScreen.width(), onScreen.height());
+                filterListRects.add(rect);
+                if (i >= matches.shown().size()) {
+                    continue;
+                }
+                ItemStack stack = matches.shown().get(i);
+                filterShown.add(stack);
+                if (rect.contains(mouseX, mouseY)) {
+                    r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.rowHover());
+                }
+                r.icon(stack, rect.x() + 2, rect.y() + 2, ROW_ICON);
+                r.text(Measure.truncate(stack.getHoverName().getString(),
+                                Math.max(0, rect.width() - ROW_ICON - 8), measure),
+                        rect.x() + ROW_ICON + 6,
+                        rect.y() + (rect.height() - r.lineHeight()) / 2, ArmatureTheme.body());
+            }
+        }
+        drawBar(r, filterView.bar(), mouseX, mouseY);
+    }
+
+    /** A press on one of the list's rows: the match's recipes, where a viewer is installed. */
+    private void pressFilterListRow(double mouseX, double mouseY) {
+        for (int i = 0; i < filterListRects.size(); i++) {
+            if (filterListRects.get(i).contains(mouseX, mouseY)) {
+                if (i < filterShown.size()) {
+                    RecipeLookups.open(RecipeLookups.Target.of(filterShown.get(i)));
+                }
+                return;
+            }
+        }
+    }
+
+    /** Whether one of the list's rows is under the pointer. */
+    private boolean onFilterListRow(double mouseX, double mouseY) {
+        for (BookGeometry.Rect rect : filterListRects) {
+            if (rect.contains(mouseX, mouseY)) {
                 return true;
             }
         }
@@ -27373,6 +28254,21 @@ public final class QuestBookScreen extends ArmatureScreen
             ClientQuestCache.Entry entry) {
         return new dev.ellipog.tenet.client.dev.DependencyProgress(entry.effectivePrerequisiteMode(),
                 entry.minRequired(), dependenciesOf(entry));
+    }
+
+    /**
+     * The state one quest's chrome draws as: gated visuals for a flexible quest whose rule is
+     * unmet, the engine's own state everywhere else.
+     *
+     * <p>One helper for the node, its label, its padlock and the card's state word, because four
+     * spellings of "gated" is how three of them would come to disagree. Playability never reads
+     * this — submit buttons, accumulation and completion keep judging engine states — and neither
+     * does the narrator, whose "worth opening" is true of a measurable quest.
+     */
+    private static QuestState shownState(ClientQuestCache.Entry entry) {
+        return dev.ellipog.tenet.client.dev.QuestVisibility.displayState(
+                ClientQuestCache.stateOf(entry.id()), entry.flexible(),
+                dependencyProgressOf(entry).met(ClientQuestCache::stateOf));
     }
 
     /** A section label and its rule, at the slot the layout reserved for it. */
@@ -27630,8 +28526,17 @@ public final class QuestBookScreen extends ArmatureScreen
         if (target != null) {
             rowItems.add(new RowItem(row, target));
         }
+        // A checkmark hands in on press, like FTB's: the row is the button. Only with no
+        // recipe target (a checkmark never has one, but the rule is the target's, not the type's)
+        // and only while the hand-in is actually offered — a locked or finished row must not
+        // swallow the press its tag already explains.
+        boolean checkmarkHandsIn = target == null && "tenet:checkmark".equals(task.type())
+                && handIn && !locked;
+        if (checkmarkHandsIn) {
+            checkmarkRows.add(new CheckmarkRow(row, entry.id(), index));
+        }
         if (!task.filter().isEmpty()) {
-            filterRows.add(new FilterRow(new Slot(row.key(), x, y, ROW_ICON, ROW_ICON), task.filter()));
+            filterRows.add(new FilterRow(row, task.filter()));
         }
         if (row.contains(mouseX, mouseY)) {
             // The player's explanation, not the author's: this hover is read by someone who has never
@@ -27664,6 +28569,11 @@ public final class QuestBookScreen extends ArmatureScreen
             if (RecipeLookups.canOpen(target)) {
                 lines.add("Click for recipes");
             }
+            if (checkmarkHandsIn) {
+                // The row is the button here, so the hover says so: a player who has to discover
+                // the footer Submit by accident is a player the row failed.
+                lines.add("Click to hand in");
+            }
             rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
@@ -27675,24 +28585,38 @@ public final class QuestBookScreen extends ArmatureScreen
         net.minecraft.resources.ResourceLocation taskTexture =
                 task.textureIcon().isEmpty() ? null
                         : net.minecraft.resources.ResourceLocation.tryParse(task.textureIcon());
-        if (!task.filter().isEmpty() && taskTexture == null) {
+        net.minecraft.resources.ResourceLocation taskSprite =
+                task.spriteIcon().isEmpty() ? null
+                        : net.minecraft.resources.ResourceLocation.tryParse(task.spriteIcon());
+        if (!task.filter().isEmpty() && taskTexture == null && taskSprite == null) {
             // A filter task cycles through what it names, one picture a second — FTB's cadence.
-            // The author's texture still wins when set; an empty match list keeps the static
-            // picture, which is the honest answer for an expression nothing answers to.
-            var matches = dev.ellipog.tenet.client.FilterMatches.of(task.filter());
-            if (!matches.shown().isEmpty()) {
-                toDraw = matches.shown().get(
-                        (int) ((net.minecraft.Util.getMillis() / 1000) % matches.shown().size()));
+            // The author's texture or sprite still wins when set; an empty match list keeps the
+            // static picture, which is the honest answer for an expression nothing answers to.
+            ItemStack frame = ClientQuestCache.filterFrame(task);
+            if (!frame.isEmpty()) {
+                toDraw = frame;
             }
         }
         if (missingItem) {
             drawItemPlaceholder(r, x, y, ROW_ICON);
             textX = x + ROW_ICON + 5;
         }
+        else if (dev.ellipog.tenet.client.CheckmarkArt.wearsBox(task)) {
+            // A bare checkmark's state box: the empty box while todo, the checked one once done.
+            // An author picture wins when present (see wearsBox); a checkmark has no item, so it
+            // can never be missing, and the box is drawn before every other arm.
+            dev.ellipog.tenet.client.CheckmarkArt.draw(r, x, y, ROW_ICON, satisfied);
+            textX = x + ROW_ICON + 5;
+        }
         else if (taskTexture != null) {
             // The author's texture: blitted rather than drawn as a stack, which the cache keeps empty
             // for a texture so no missing branch fires for a picture.
             r.texture(taskTexture, x, y, ROW_ICON, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (taskSprite != null) {
+            // The author's atlas sprite: drawn from the atlas, like the texture arm above.
+            r.sprite(taskSprite, x, y, ROW_ICON, ROW_ICON, 0xFFFFFFFF);
             textX = x + ROW_ICON + 5;
         }
         else if (r.icon(toDraw, x, y, ROW_ICON)) {
@@ -27907,6 +28831,9 @@ public final class QuestBookScreen extends ArmatureScreen
         net.minecraft.resources.ResourceLocation rewardTexture =
                 reward.textureIcon().isEmpty() ? null
                         : net.minecraft.resources.ResourceLocation.tryParse(reward.textureIcon());
+        net.minecraft.resources.ResourceLocation rewardSprite =
+                reward.spriteIcon().isEmpty() ? null
+                        : net.minecraft.resources.ResourceLocation.tryParse(reward.spriteIcon());
         if (missingItem) {
             drawItemPlaceholder(r, x, y, ROW_ICON);
             textX = x + ROW_ICON + 5;
@@ -27915,6 +28842,11 @@ public final class QuestBookScreen extends ArmatureScreen
             // The author's texture, blitted rather than drawn as a stack — the task row's rule, one
             // member over.
             r.texture(rewardTexture, x, y, ROW_ICON, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (rewardSprite != null) {
+            // The author's atlas sprite, drawn from the atlas — the task row's rule, one member over.
+            r.sprite(rewardSprite, x, y, ROW_ICON, ROW_ICON, 0xFFFFFFFF);
             textX = x + ROW_ICON + 5;
         }
         else if (r.icon(toDraw, x, y, ROW_ICON)) {
@@ -28271,6 +29203,18 @@ public final class QuestBookScreen extends ArmatureScreen
                     return true;
                 }
             }
+            else if (on == PanelKind.FILTER && button == 0) {
+                // The accepted-items list's bar before its rows, then the rows from the last
+                // frame's own drawing. A press that hits no row is not the panel's, so it reaches
+                // the tail and the canvas stays pannable from over the list's gaps.
+                if (pressBar(filterView.bar(), mouseX, mouseY)) {
+                    return true;
+                }
+                if (onFilterListRow(mouseX, mouseY)) {
+                    pressFilterListRow(mouseX, mouseY);
+                    return true;
+                }
+            }
             else if ((on == PanelKind.QUEST || on == PanelKind.PICKER) && mayEditNow() && button == 0) {
                 // The type page's bar, then its rows: it is the list on screen, and a press aimed at its
                 // grip is the list's rather than the page's.
@@ -28286,6 +29230,39 @@ public final class QuestBookScreen extends ArmatureScreen
                 // of its own, only *that* rail takes it: a press in the panel's own rail belongs to the
                 // panel, which is the whole point of having both on screen.
                 else if (pickingItemPath != null && (on == PanelKind.PICKER || !pickerAsColumn())) {
+                    // The kind tabs before the bar and the rows: a press on the strip switches lists,
+                    // and the rows below are already the new tab's by the next frame. The arm's own
+                    // rail rule applies — no stricter gate here, or the tabs would go dead exactly
+                    // where the rows stay live.
+                    if (pickerTabsVisible() && pressPickerTab(mouseX, mouseY)) {
+                        return true;
+                    }
+                    // The sprite tab has no list rows: only its clear row answers, and anything
+                    // else is not the picker's, for the same pannable-gaps reason as files.
+                    if (pickerTabsVisible() && pickerKind == PickerKind.SPRITE) {
+                        if (spriteClearRect != null && spriteClearRect.contains(mouseX, mouseY)) {
+                            commitPicker(null, 1);
+                            return true;
+                        }
+                        return false;
+                    }
+                    // The file tab's bar and rows are the texture picker's own state, not the item
+                    // list's: a press must walk what was drawn, like every list here. A press that
+                    // hits neither is not the picker's, so it reaches the tail and the canvas stays
+                    // pannable from over the list's gaps.
+                    if (pickerTabsVisible() && pickerKind == PickerKind.FILE) {
+                        if (pressBar(textureBar, mouseX, mouseY)) {
+                            return true;
+                        }
+                        int fileRow = textureFrame == null ? -1
+                                : ItemPickerLayout.rowAt(textureRows, textureFrame,
+                                        textureBody.scrollY(), mouseY);
+                        if (fileRow >= 0) {
+                            pressFileRow(fileRow);
+                            return true;
+                        }
+                        return false;
+                    }
                     if (pressBar(pickerBar, mouseX, mouseY)) {
                         return true;
                     }
@@ -28361,9 +29338,15 @@ public final class QuestBookScreen extends ArmatureScreen
                 if (button == 0 && pressRowItem(mouseX, mouseY)) {
                     return true;
                 }
-                // A filter row's icon previews what it accepts, after the recipe rows: a filter
-                // row never carries a recipe target, so the two cannot claim one press.
+                // A filter row previews what it accepts in the second column, after the recipe
+                // rows: a filter row never carries a recipe target, so the two cannot claim one press.
                 if (button == 0 && pressFilterRow(mouseX, mouseY)) {
+                    return true;
+                }
+                // A checkmark row hands in, after every other row press: it never carries a recipe
+                // target either, and it is registered only while the hand-in is offered, so this
+                // cannot steal a press something else answers.
+                if (button == 0 && pressCheckmarkRow(mouseX, mouseY)) {
                     return true;
                 }
             }
@@ -29734,6 +30717,14 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
                 return true;
             }
+            // The file tab scrolls the texture list's own bar: the wheel belongs to the list on
+            // screen, and the item list behind this tab does not move.
+            if (pickerTabsVisible() && pickerKind == PickerKind.FILE) {
+                if (textureFrame != null) {
+                    textureBar.wheel(scrollY);
+                }
+                return true;
+            }
             if (pickerFrame != null) {
                 pickerBar.wheel(scrollY);
             }
@@ -29753,6 +30744,13 @@ public final class QuestBookScreen extends ArmatureScreen
             // The card is a list, so the wheel is the list's -- and absorbed whether or not there is
             // anywhere to go, the same as every other card's.
             choiceView.bar().wheel(scrollY);
+            return true;
+        }
+
+        if (wheel == PanelKind.FILTER) {
+            // The list's wheel is the list's, like every other card's: absorbed, so the quest
+            // behind it does not scroll.
+            filterView.bar().wheel(scrollY);
             return true;
         }
 
@@ -30136,11 +31134,23 @@ public final class QuestBookScreen extends ArmatureScreen
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_UP) {
-                pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, -1);
+                // The file tab walks its own rows: the keyboard's row is always the list on
+                // screen, and the item list behind this tab is not.
+                if (pickerTabsVisible() && pickerKind == PickerKind.FILE) {
+                    textureSelected = ItemPickerLayout.step(textureRows, textureSelected, -1);
+                }
+                else {
+                    pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, -1);
+                }
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_DOWN) {
-                pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, 1);
+                if (pickerTabsVisible() && pickerKind == PickerKind.FILE) {
+                    textureSelected = ItemPickerLayout.step(textureRows, textureSelected, 1);
+                }
+                else {
+                    pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, 1);
+                }
                 return true;
             }
         }

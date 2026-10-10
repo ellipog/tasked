@@ -410,8 +410,25 @@ public final class TenetEmiPlugin implements dev.emi.emi.api.EmiPlugin, Integrat
             }
             QuestPageLayout.Box iconBox = layout.headerIcon();
             ItemStack icon = page.quest().icon();
+            net.minecraft.resources.ResourceLocation headerTexture =
+                    page.quest().textureIcon().isEmpty() ? null
+                            : net.minecraft.resources.ResourceLocation.tryParse(page.quest().textureIcon());
+            net.minecraft.resources.ResourceLocation headerSprite =
+                    page.quest().spriteIcon().isEmpty() ? null
+                            : net.minecraft.resources.ResourceLocation.tryParse(page.quest().spriteIcon());
             if (!icon.isEmpty()) {
                 renderer.icon(icon, iconBox.x(), iconBox.y(), iconBox.width());
+            }
+            else if (headerTexture != null) {
+                // A picture, not a stack: drawn through the blit in the header's own box, like the
+                // book's card draws it.
+                renderer.texture(headerTexture, iconBox.x(), iconBox.y(), iconBox.width(),
+                        iconBox.width());
+            }
+            else if (headerSprite != null) {
+                // An atlas region, drawn from the atlas in the same box.
+                renderer.sprite(headerSprite, iconBox.x(), iconBox.y(), iconBox.width(),
+                        iconBox.width(), 0xFFFFFFFF);
             }
             else if (!page.quest().iconId().isEmpty()) {
                 // A pack can name an item this build does not have; the header keeps the id rather

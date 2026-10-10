@@ -161,6 +161,28 @@ public final class QuestVisibility {
     }
 
     /**
+     * The state a quest draws as: its own, except a flexible quest with unmet dependencies
+     * draws {@link QuestState#LOCKED}.
+     *
+     * <p>The engine never resolves such a quest to LOCKED — it stays measurable so tasks
+     * accumulate — but drawing it UNLOCKED is what made whole flexible chapters read as open:
+     * FTB shows these quests locked, and an available reading is the one thing the state
+     * cannot mean while completion still waits. Playability never reads this: submit buttons,
+     * accumulation and completion keep judging the engine's own states, so a quest can look
+     * gated and still take progress.
+     *
+     * @param state    the team's resolved state for the quest
+     * @param flexible whether the quest measures before its gate opens, as the server resolved it
+     * @param ruleMet  whether the quest's prerequisite rule is satisfied
+     */
+    public static QuestState displayState(QuestState state, boolean flexible, boolean ruleMet) {
+        if ((state == QuestState.UNLOCKED || state == QuestState.STARTED) && flexible && !ruleMet) {
+            return QuestState.LOCKED;
+        }
+        return state;
+    }
+
+    /**
      * Whether this quest's incoming dependency lines are drawn.
      *
      * <p>The one flag in the family that is not about the quest: the quest is visible and the lines into

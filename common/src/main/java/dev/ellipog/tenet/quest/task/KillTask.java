@@ -6,6 +6,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import dev.ellipog.tenet.Tenet;
+import dev.ellipog.tenet.quest.ItemRef;
 import dev.ellipog.tenet.quest.QuestTask;
 import dev.ellipog.tenet.quest.TaskCommon;
 import dev.ellipog.tenet.quest.TaskContext;
@@ -131,11 +132,22 @@ public record KillTask(TaskCommon common, Optional<ResourceLocation> entity,
         }
     };
 
-    public static final Function<KillTask, TaskDisplay> DISPLAY = task ->
-            // The mob is the subject; the count rides the row's own progress chip, so the sentence
-            // reads "Kill Zombie" with "0 / 5" beside it rather than saying the number twice.
-            TaskDisplay.ofTranslatableText("tenet.task.kill", "Kill " + task.target(), task.target(),
-                    task.value());
+    public static final Function<KillTask, TaskDisplay> DISPLAY = task -> {
+        // The mob is the subject; the count rides the row's own progress chip, so the sentence
+        // reads "Kill Zombie" with "0 / 5" beside it rather than saying the number twice.
+        TaskDisplay display = TaskDisplay.ofTranslatableText("tenet.task.kill", "Kill " + task.target(),
+                task.target(), task.value());
+        // The mob's own egg as the row's picture — but only when one mob is named: a tag takes
+        // precedence in matching (see matches), so a tagged task keeps the sword rather than an
+        // egg that would name the wrong mob. An entity with no egg keeps it too.
+        if (task.entity().isPresent() && task.entityTypeTag().isEmpty()) {
+            ItemRef egg = TaskTypes.eggOf(task.entity().get());
+            if (egg != null) {
+                return display.withTypePicture(egg);
+            }
+        }
+        return display;
+    };
 
     /** The target alone — the entity id, its tag, or the word for "any" — for the row's subject. */
     public String target() {

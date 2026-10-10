@@ -80,16 +80,17 @@ public final class QuestLinkArt {
      * @param icon  the target's icon; null or empty for none, which is what the stand-in block is
      *              for. Null is accepted because the game-free tests cannot build a stack at all.
      * @param texture the target's texture path when its icon is a texture, and empty otherwise
+     * @param sprite the target's atlas region when its icon is a sprite, and empty otherwise
      * @param state how far the target has got: the edge and the wash, and nothing else
      * @param ring  the hover or selection ring's colour, or 0 for none. Links are never flashed — a
      *              press opens the target rather than choosing the marker — so the caller passes a hover
      *              ring, a selection ring, or nothing.
      */
-    public static void draw(Frame frame, Slot slot, ItemStack icon, String texture, QuestState state,
-                            int ring) {
+    public static void draw(Frame frame, Slot slot, ItemStack icon, String texture, String sprite,
+                            QuestState state, int ring) {
         QuestNodeArt.draw(frame.renderer(), slot.box().left(), slot.box().top(),
                 new QuestNodeArt.Look(slot.box().width(), slot.link().shape(), slot.geometry(), icon,
-                        texture,
+                        texture, sprite,
                         dev.ellipog.tenet.quest.QuestLayout.DEFAULT_ICON_SCALE,
                         QuestNodeArt.edgeFor(state), ring, QuestNodeArt.washFor(state)));
     }

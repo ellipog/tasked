@@ -153,8 +153,8 @@ class SidebarDragTest {
     }
 
     /**
-     * The reported layout: one group, then an ungrouped chapter — which is where the sidebar puts every
-     * root chapter, because the groups are all added before them.
+     * One group with a root chapter below it: an arbitrary row list for the drop math, not the
+     * sidebar's own order (which draws roots before headings).
      */
     private static final List<SidebarDrag.Row> GROUP_THEN_ROOT = List.of(
             row("group:last", true, "", 0),

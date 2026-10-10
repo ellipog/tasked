@@ -362,6 +362,9 @@ public final class RewardTypes {
             else if (icon instanceof dev.ellipog.tenet.quest.Icon.Texture texture) {
                 out = out.withAuthorTexture(texture.texture().toString());
             }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Sprite sprite) {
+                out = out.withAuthorSprite(sprite.sprite().toString());
+            }
             else if (icon instanceof dev.ellipog.tenet.quest.Icon.Entity entity) {
                 ItemRef egg = eggOf(entity.entity());
                 out = egg != null ? out.withAuthorItem(egg) : out;

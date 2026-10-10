@@ -19,13 +19,15 @@ quietly becomes required fails there first.
 | `observation` (`to_observe`, `timer`, `observe_type`) | `tenet:observation` (`toObserve`, `timer`, `observeType`) | Names carry over: `block`, `block_tag`, `block_entity`, `entity_type` and friends are the same words. NBT appended to `toObserve` (e.g. `minecraft:sheep{Color: 4b}`) is a fuzzy subset match on both sides. |
 | `stat` (`stat`, `value`) | `tenet:stat` (`stat`, `value`) | Same two fields, same meaning. |
 | `forge_energy` (`value`, `max_input`) | `tenet:energy` (`value`, `maxInput`) | Same pair under Tenet's name, counted from carried items' energy storage rather than piped into a task screen. An absent `max_input` means unlimited here (FTB's absent limit accepts nothing — the migrated ATM10 quest relies on this reading). |
-| `kill` (`entity`, `entity_type_tag`, `value`, `custom_name`, `nbt_filter`) | `tenet:kill` (`entity`, `entityTypeTag`, `value`, `customName`, `nbtFilter`) | The tag takes precedence over the id on both sides; NBT is a fuzzy subset match on both sides. |
+| `kill` (`entity`, `entity_type_tag`, `value`, `custom_name`, `nbt_filter`) | `tenet:kill` (`entity`, `entityTypeTag`, `value`, `customName`, `nbtFilter`) | The tag takes precedence over the id on both sides; NBT is a fuzzy subset match on both sides. A kill naming one mob wears its spawn egg on rows, pins and (by adoption) its quest's node — resolved at sync, so files stay clean; tags, mob-less kills and eggless entities keep the sword, and an author picture still wins. |
 | `location` (box + `ignore_dim`) | `tenet:location` (box + `ignoreDimension`) | Same box, same flag. |
-| `item` + `match_components` | `tenet:item` + `match` | The three words are identical: `none`, `fuzzy`, `strict`, with `strict` the default on both sides. A 1.20.1 pack's `match_nbt` becomes `match`. |
+| `item` + `match_components` | `tenet:item` + `match` | The three words are identical: `none`, `fuzzy`, `strict`, with `strict` the default on both sides. A 1.20.1 pack's `match_nbt` becomes `match`. One exception: item components holding integers JSON cannot hold (past ±2^53−1, e.g. creative energy cells) force `fuzzy`, because strict is unachievable without the digits — a strict template could never equal a carried stack. The whole component goes (a pruned husk would compare unequal just the same) and the report names it, including when it overrides an explicit `strict`. |
+| `item` data components | verbatim, with `1b`/`0b` flags read as booleans | Components pass through structurally, never interpreted. Integers past ±2^53−1 drop their whole component (see the `match` row); the one ATM10 case is a creative cube's infinite-energy marker, where fuzzy decides exactly the same gates. |
 | `item` + `only_from_crafting` | `tenet:item` + `onlyFromCrafting` | Same flag, with one documented difference: Tenet counts lifetime crafted statistics rather than watching the crafting event, so handing the stack away does not un-count it. |
 | `item` + `consume_items` | `tenet:item` + `consumeItems` | Absent defers to the chapter's `defaultConsumeItems` on both sides (see below for the file-level default). |
-| filter stacks (`ftbfiltersystem:smart_filter` + `ftbfiltersystem:filter`) | `tenet:filter` (`filter`, `count`, `consumeItems`, `manualOnly`) | The expression passes through verbatim — `or(item(a)item(b))`, `item_tag(x)`, `mod/and/or/not` and all — because Tenet reads the same vocabulary. A single `item_tag(x)` may instead become a `tenet:item_tag`; anything the expression answers that a quest cannot (`component` and friends) is reported, never emitted. |
+| filter stacks (`ftbfiltersystem:smart_filter` + `ftbfiltersystem:filter`) | `tenet:filter` (`filter`, `count`, `consumeItems`, `manualOnly`) | The expression passes through verbatim — `or(item(a)item(b))`, `item_tag(x)`, `mod/and/or/not` and all — because Tenet reads the same vocabulary. A single `item_tag(x)` may instead become a `tenet:item_tag`. Anything the expression answers that a quest cannot (`component` and friends) becomes a `tenet:custom` placeholder keyed `migrator:filter/<task>` instead of vanishing: a dropped task would silently finish quests whose only task it was, while the placeholder reads zero progress and waits for a handler. Filter matches cycle live on every surface (rows, nodes, adoption, HUD), so mapped filters carry no still icon. |
 | `item`/`fluid` + `task_screen_only` | `tenet:item`/`tenet:item_tag`/`tenet:fluid` + `manualOnly` | Same flag under Tenet's name: the tick never counts from the inventory, only a submit press does. FTB fills such tasks by piping into a task screen block; Tenet has no such block, so the piped path is a documented loss and this flag keeps the manual half. |
+| `checkmark` | `tenet:checkmark` | Same handshake under Tenet's name: the row wears the empty box while todo and the checked box once done (`tenet:textures/gui/checkmark_unchecked.png`, `.../checkmark_checked.png`), which is what FTB's `checkmark_task_inactive`/`checkmark_task_active` theme icons say. Pressing the row hands it in, like FTB — the footer Submit stays for discoverability. An author picture on the task wins over the box on every surface, like every other override. |
 | `gamestage` (`stage`, `team_stage`) | `tenet:stage` (`stage`, `teamStage`) | Same pair under Tenet's name: the stage to have, read from the team's stages when `team_stage` is set rather than the player's own. |
 
 ## Rewards that map 1:1
@@ -38,8 +40,8 @@ quietly becomes required fails there first.
 | `ignore_reward_blocking` | `ignoreRewardBlocking` on every reward | Same flag. |
 | `ignore_reward_blocking` (quest) | `ignoreRewardBlocking` on the quest | Same flag: either the quest's or a reward's own exempts that reward from a held payout. |
 | `disable_toast` (reward) | `disableToast` on every reward | Same flag, recorded on the model, the wire and the editor. Quiets the reward-level notice (toast description, command feedback); a reward in a quieted quest stays quiet through the quest's own flag. |
-| `title` (task, from lang `task.<id>.title`) | `title` on every task and reward | The row's own words instead of the type's sentence. A checkmark reads its button from here, exactly as before — the key is unchanged, so old files read the same way. |
-| `icon` (task/reward override) | `icon` on every task and reward | An item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture on a row (quest and chapter nodes name the missing entity instead). |
+| `title` (task, from lang `task.<id>.title`) | `title` on every task and reward | The row's own words instead of the type's sentence. A checkmark reads its button from here, exactly as before — the key is unchanged, so old files read the same way. A checkmark with no title draws its bare button beside the state box (FTB shows no sentence either), and the tool reports each one as author work. |
+| `icon` (task/reward override) | `icon` on every task and reward | An item, a texture file, an atlas region, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture on a row (quest and chapter nodes name the missing entity instead). |
 | `command` + `silent` + `feedback_message` | `tenet:command` (`command`, `permissionLevel`, `silent`, `feedbackMessage`) | Same flag; placeholders (`{p}`, `{x}`/`{y}`/`{z}`, `{quest}`, `{chapter}`, `{team}`) carry over. `feedback_message` is the success line shown when the command runs; absent shows nothing extra. |
 | `item` + `only_one` | `tenet:item` + `onlyOne` | Same flag: checked by item type, ignoring components, on both sides. Table entries keep `weight` and `randomBonus` as written. |
 | `toast` (`description`) | `tenet:toast` (`description`) | The message shown when collected, as literal text or a translation key with fallback. |
@@ -61,7 +63,7 @@ quietly becomes required fails there first.
 | `min_width` (quest) | `minWidth` (quest) | Same field, 0–3000, 0 unset. A quest's own value wins over the chapter's `defaultMinWidth`. |
 | chapter `default_min_width` | `defaultMinWidth` (chapter) | The chapter default for its quests' panel width. |
 | chapter `autofocus_id` | `autofocus` (chapter) | The quest, by id or alias in this chapter, the canvas centres on when selected. Absent centres on the chapter's bounding box. |
-| quest/chapter/group/book icon (`custom_icon` texture, `entity_face`) | `icon` (`texture`, `entity` arms) | A texture file draws stretched into the icon's box; an entity draws as its spawn egg where one exists, else the missing mark naming it. The item arm is the shape every old file uses, so it reads unchanged. |
+| quest/chapter/group/book icon (`custom_icon` texture, `entity_face`) | `icon` (`texture`, `sprite`, `entity` arms) | A texture file draws stretched into the icon's box; an atlas region draws from the atlas; an entity draws as its spawn egg where one exists, else the missing mark naming it. File or atlas is FTB's own rule: a `.png`/`.jpg` suffix is a file, anything else a region — the migrator applies it verbatim, so `occultism:block/chalk_glyph/0` lands on `sprite`. Both readers draw from the blocks atlas, so regions resolve identically; the two `ftblibrary:icons/*` strings no atlas stitches draw the missing mark on both sides, which is parity rather than loss. The item arm is the shape every old file uses, so it reads unchanged. |
 | table `use_title` | `useTitle` (reward table) | A reward row that rolls the table wears the table's title rather than the generic roll sentence. |
 | table `hide_tooltip` | `hideTooltip` (reward table) | A reward row that rolls the table draws no hover, unless the row is locked — a shut gate is still explained. |
 | `hide_text_until_complete` | `hideTextUntilComplete` | Same flag. |
@@ -90,6 +92,22 @@ quietly becomes required fails there first.
 | file `emergency_items` | `emergencyItems` (index settings) | What `/tenet emergency` hands out: item references with counts and components. Empty means the command answers that there is nothing to grant. There is no book button — the shelf is asked for by name, with an in-memory per-player cooldown. |
 | file `drop_loot_crates`, `loot_crate_no_drop` | _tool-reported_ | No Tenet home: loot crates are out of scope (T29), so the tool reports these as manual work rather than emitting them. |
 | file `verify_on_load` | _tool-reported_ | No Tenet home: a loader flag with no quest-file meaning here, so the tool reports it as manual work. |
+
+## Dependencies
+
+Quest gates carry over exactly — same targets, same order, same rule:
+
+| FTB field | Tenet field | Notes for the tool |
+|---|---|---|
+| `dependencies` | `dependsOn` | One entry per FTB edge, remapped `HEX` → slug, order preserved, including edges into other chapters and groups. A gate on a task or reward id lifts onto the quest owning it (Tenet gates quests on quests only) and is reported naming both sides; where the owning quest is already named beside it, the pair collapses onto the one edge. A gate lifting onto the quest itself drops as a self-loop. Duplicates collapse with a note; a dangling id, a chapter id, or the quest's own id fails the run rather than emitting a file Tenet would refuse. |
+| `dependency_requirement` | `prerequisiteMode` | The same four words (`all_completed`, `one_completed`, `all_started`, `one_started`); the default stays absent. |
+| `min_required_dependencies` | `minRequired` | Same count ("any N of these"); written only when above 0, and refused when above the dependency count, which Tenet also refuses. |
+| `max_completable_dependents` | `maxCompletableDependents` | Same cap; written only when above 0. |
+| `optional` | `optional` | Same marker: a side quest. It still gates its dependants exactly like any other quest — FTB's optional only excuses chapter completion, never a gate — so the 102 reference-pack edges onto optional quests stay real gates. |
+| `progression_mode` | `flexibleProgress` | Quest → chapter → file; `flexible` anywhere effective sets the flag. |
+| `can_repeat` (+ chapter `default_repeatable_quest`) | `repeatable` | Quest → chapter default → `false`. |
+| `repeat_cooldown` (seconds) | `repeatCooldownTicks` (×20) | Same wait under Tenet's unit; a cooldown without `repeatable` is reported and dropped. |
+| `dep_control_pts` | _tool-reported_ | No Tenet home: Tenet draws its own routes, so hand-bent lines are reported, never emitted. |
 
 ## Commands the tool rewrites
 
@@ -130,9 +148,13 @@ rather than suppressing the check. The file settings that have no Tenet home —
 `loot_crate_no_drop` (loot crates are out of scope) and `verify_on_load` (a loader flag) — are
 rows above marked _tool-reported_ rather than mappings.
 
-Third-party task and reward types (`custom` entries, `eternalcurrencies:currency`,
-`questsadditions:*`, `quest_loot`, and the crate types a `loot_crate` sub-object would have named)
-are **not** mapped to Tenet types either: Tenet loads each such node as an unknown placeholder and
-warns, so the quest still plays around it, and the tool reports every use as manual work — install
-the mod that provides it, or replace the node. An FTB `loot` reward itself converts as a weighted
-table; only the physical crate, its opener and its drops are manual work.
+Third-party task types (`custom` entries and the quest-unanswerable filter functions)
+become `tenet:custom` placeholders keyed by the task's own id, so the quest waits for a
+handler instead of completing free. Third-party reward types (`custom` entries,
+`eternalcurrencies:currency`, `questsadditions:*`, `quest_loot`, and the crate types a
+`loot_crate` sub-object would have named) are **not** mapped to Tenet types: Tenet loads
+each such node as an unknown placeholder and warns, so the quest still plays around it
+(a missing reward only withholds a payout, never an unlock), and the tool reports every
+use as manual work — install the mod that provides it, or replace the node. An FTB `loot`
+reward itself converts as a weighted table; only the physical crate, its opener and its
+drops are manual work.

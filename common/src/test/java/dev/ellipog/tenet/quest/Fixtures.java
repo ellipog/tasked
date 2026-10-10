@@ -299,8 +299,9 @@ public final class Fixtures {
         }
 
         /**
-         * Whether this quest gates its dependants. The quest-level flag — not {@link #optional(int)},
-         * which marks one <i>task</i> as skippable. True is the side quest nothing waits for.
+         * Whether this quest is marked a side quest. The quest-level flag — not {@link #optional(int)},
+         * which marks one <i>task</i> as skippable. A marker, not a gate: it gates its
+         * dependants exactly like any other quest.
          */
         public Builder optional(boolean value) {
             this.optionalQuest = value;

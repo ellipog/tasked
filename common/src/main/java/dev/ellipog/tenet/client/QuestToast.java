@@ -52,18 +52,26 @@ public final class QuestToast implements Toast {
     private final ItemStack icon;
     /** The texture path when the subject wears a texture icon, and empty otherwise. */
     private final String texture;
+    /** The atlas region when the subject wears a sprite icon, and empty otherwise. */
+    private final String sprite;
     private final Component label;
     private final Component title;
     private long bornAt = -1L;
 
     public QuestToast(String token, ItemStack icon, Component label, Component title) {
-        this(token, icon, "", label, title);
+        this(token, icon, "", "", label, title);
     }
 
     public QuestToast(String token, ItemStack icon, String texture, Component label, Component title) {
+        this(token, icon, texture, "", label, title);
+    }
+
+    public QuestToast(String token, ItemStack icon, String texture, String sprite, Component label,
+                      Component title) {
         this.token = token;
         this.icon = icon;
         this.texture = texture == null ? "" : texture;
+        this.sprite = sprite == null ? "" : sprite;
         this.label = label;
         this.title = title;
     }
@@ -102,8 +110,13 @@ public final class QuestToast implements Toast {
             ArmatureTheme.panel(r, 0, 0, width(), height());
             net.minecraft.resources.ResourceLocation textureId =
                     texture.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(texture);
+            net.minecraft.resources.ResourceLocation spriteId =
+                    sprite.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(sprite);
             if (textureId != null) {
                 r.texture(textureId, 5, (height() - ICON_BOX) / 2, ICON_BOX, ICON_BOX);
+            }
+            else if (spriteId != null) {
+                r.sprite(spriteId, 5, (height() - ICON_BOX) / 2, ICON_BOX, ICON_BOX, 0xFFFFFFFF);
             }
             else {
                 r.icon(icon, 5, (height() - ICON_BOX) / 2, ICON_BOX);

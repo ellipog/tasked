@@ -496,7 +496,8 @@ public final class TenetCommand {
      */
     private static int restore(CommandContext<CommandSourceStack> context) {
         String path = StringArgumentType.getString(context, "path");
-        EditorOps.Applied applied = TenetQuests.restore(path);
+        EditorOps.Applied applied = TenetQuests.restore(path, context.getSource().getServer()
+                .registryAccess().createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE));
         if (applied.ok()) {
             TreeRefresh.request(EditorOps.reachOf(new EditorOp.RestoreRemoved(path)));
         }
@@ -517,6 +518,9 @@ public final class TenetCommand {
         // `TenetQuests.reload` would throw the undo history away after every applied op, because that is what
         // applying an op calls to put its own write on the canvas.
         TenetQuests.editors().forget();
+        // And whatever edits armed while the files were being read: the load below already did the
+        // work a flush would do, so there is nothing owed and nothing to re-read.
+        dev.ellipog.tenet.quest.TreeRefresh.clear();
         // And the table editors' draft cache, for the same reason and in the same place: a table edit
         // validates against the file as it was last read, so a hand edit would be silently reverted by
         // the next in-game one. `/tenet reload` is the one gesture that says "the files changed

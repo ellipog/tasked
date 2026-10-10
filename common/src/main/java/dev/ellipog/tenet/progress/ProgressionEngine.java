@@ -98,9 +98,9 @@ public final class ProgressionEngine {
      * Whether a quest's dependencies are satisfied, judged from already-resolved states.
      *
      * <p>The completion half of flexible progress: a flexible quest's tasks may accumulate while
-     * its gate is shut, but it completes only once the gate opens. Optional dependencies are
-     * left out of both counts, exactly as the resolver leaves them — and a second spelling of
-     * that rule is how the gate and the resolver would come to disagree.
+     * its gate is shut, but it completes only once the gate opens. Every dependency counts,
+     * optional ones included — FTB Quests gates on an optional quest exactly like any other,
+     * so skipping one here would open gates the pack keeps shut.
      *
      * @param states the resolution to judge against: the pass's own map from the resolver, or a
      *               fresh {@link #resolve} for a call site that holds none
@@ -114,9 +114,6 @@ public final class ProgressionEngine {
         int counted = 0;
         for (QuestRef dependency : quest.dependencies()) {
             Optional<QuestIndex.QuestEntry> target = index.quest(dependency.id());
-            if (target.isPresent() && target.get().quest().optional()) {
-                continue;
-            }
             counted++;
             QuestState state = target
                     .map(found -> states.getOrDefault(found.quest().id(), QuestState.LOCKED))
@@ -263,20 +260,16 @@ public final class ProgressionEngine {
             }
 
             // Dependencies. Resolve each first, so this is a depth-first walk of the graph.
+            // Every dependency gates, optional ones included: FTB Quests' optional only excuses
+            // a quest from chapter completion, never from a gate — a pack gating on a side
+            // quest means it, and skipping the edge would unlock what the pack keeps locked.
+            // Dependency lines are still drawn for every edge.
             PrerequisiteMode effective = quest.prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
 
-            // An optional dependency is left out of both counts: it neither helps nor blocks.
-            // That is FTB Quests' "this quest doesn't gate its dependants", and the reason both
-            // counts move rather than just the satisfied one is that leaving it in the required
-            // count would keep blocking under every ALL_ mode. Dependency lines are still drawn;
-            // optionality is presentation everywhere except here.
             int satisfied = 0;
             int counted = 0;
             for (var dependency : quest.dependencies()) {
                 Optional<QuestIndex.QuestEntry> target = index.quest(dependency.id());
-                if (target.isPresent() && target.get().quest().optional()) {
-                    continue;
-                }
                 counted++;
                 // Unresolved by the loader's reading: index.quest missed, so this resolves to
                 // LOCKED, which is what resolveById answers for a name nothing holds. The loader
@@ -361,7 +354,7 @@ public final class ProgressionEngine {
     }
 
     /**
-     * How many of a quest's dependencies must be satisfied, excluding optional ones.
+     * How many of a quest's dependencies must be satisfied, counting every edge.
      *
      * <p>The display half of the engine's own counting: {@code /tenet progress} names the same
      * number the resolver enforces, and a second spelling of the denominator is how the two would
@@ -369,13 +362,7 @@ public final class ProgressionEngine {
      * they are fixed the quest behaves as gated rather than as open.
      */
     public static int requiredCount(QuestIndex index, Quest quest, PrerequisiteMode effective) {
-        int counted = 0;
-        for (QuestRef dependency : quest.dependencies()) {
-            if (index.quest(dependency.id()).map(target -> target.quest().optional()).orElse(false)) {
-                continue;
-            }
-            counted++;
-        }
+        int counted = quest.dependencies().size();
         return PrerequisiteMode.requiredCount(effective, quest.minRequired(), counted);
     }
 

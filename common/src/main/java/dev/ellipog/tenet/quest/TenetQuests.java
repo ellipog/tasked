@@ -169,7 +169,8 @@ public final class TenetQuests {
      * <p>An unknown name is refused with a sentence naming the command that lists the real ones, rather
      * than with a filesystem error.
      */
-    public static EditorOps.Applied restore(String path) {
+    public static EditorOps.Applied restore(String path,
+                                             com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Removed wanted = removed().stream()
                 .filter(each -> each.path().equals(path))
                 .findFirst()
@@ -179,9 +180,9 @@ public final class TenetQuests {
                     + "\" - /tenet removed lists the names that are");
         }
         return switch (wanted.kind()) {
-            case TABLE -> TABLES.apply(new TableOp.Restore(path));
-            case QUEST -> EDITORS.apply(wanted.chapter(), new EditorOp.RestoreRemoved(path));
-            case GROUP, CHAPTER -> EDITORS.apply("", new EditorOp.RestoreRemoved(path));
+            case TABLE -> TABLES.apply(new TableOp.Restore(path), ops);
+            case QUEST -> EDITORS.apply(wanted.chapter(), new EditorOp.RestoreRemoved(path), ops);
+            case GROUP, CHAPTER -> EDITORS.apply("", new EditorOp.RestoreRemoved(path), ops);
         };
     }
 
@@ -256,6 +257,46 @@ public final class TenetQuests {
      */
     public static Problems problems() {
         return problems;
+    }
+
+    /**
+     * Patches dirty chapters into the loaded index without re-reading the tree, for a cosmetic
+     * flush: every quest file, manifest and table re-read and re-validated is what makes a drag
+     * cost a second on a big pack, and a cosmetic op cannot have moved anything that re-read
+     * would find — positions, names and pictures are what changed, and the save that wrote them
+     * already validated them.
+     *
+     * <p>Read from the open editors rather than from disk: the op just saved through them, so the
+     * model is the saved state with no walk and no second read. Anything the refresh cannot
+     * answer — a chapter with no open editor, a decode that fails — returns false, and the
+     * caller answers that with the full reload, which is always correct. Progress, cycles and
+     * problems are untouched, which is exactly what cosmetic means: no stored progress moved, no
+     * edge changed, no new fault exists to report.
+     *
+     * @param chapters the dirty chapter ids, in arrival order; empty answers false
+     * @param ops      the ops codecs decode with: the server's registry ops, the same ones the
+     *                 save validated with, so a decode here agrees with the save about every file
+     * @return true when every named chapter patched and the index was swapped
+     */
+    public static boolean refreshChapters(java.util.Set<String> chapters,
+                                          com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        if (chapters == null || chapters.isEmpty() || index == null) {
+            return false;
+        }
+        QuestIndex patched = index;
+        for (String chapter : chapters) {
+            java.util.Optional<QuestIndex.FreshChapter> fresh = EDITORS.refreshModel(chapter, ops);
+            if (fresh.isEmpty()) {
+                return false;
+            }
+            QuestIndex next = patched.withRefreshedChapter(fresh.get());
+            if (next == null) {
+                return false;
+            }
+            patched = next;
+        }
+        index = patched;
+        return true;
     }
 
     /**

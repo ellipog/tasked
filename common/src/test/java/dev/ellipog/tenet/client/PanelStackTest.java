@@ -40,12 +40,13 @@ class PanelStackTest {
             new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.NONE, Fold.AUTO);
 
     @Test
-    @DisplayName("a child is the four lists, and nothing else is")
+    @DisplayName("a child is the five lists, and nothing else is")
     void theChildKinds() {
         for (PanelKind kind : PanelKind.values()) {
             boolean child = PanelStack.isChild(kind);
             if (kind == PanelKind.PICKER || kind == PanelKind.TEXTURE
-                    || kind == PanelKind.TABLE_BROWSER || kind == PanelKind.TABLE_EDITOR) {
+                    || kind == PanelKind.TABLE_BROWSER || kind == PanelKind.TABLE_EDITOR
+                    || kind == PanelKind.FILTER) {
                 assertTrue(child, kind + " is a list of things rather than a thing");
             }
             else {
@@ -53,6 +54,25 @@ class PanelStackTest {
             }
         }
         assertFalse(PanelStack.isChild(PanelKind.NONE), "NONE is the absence of a panel, not a panel");
+    }
+
+    @Test
+    @DisplayName("a filter list files beside its quest and is peeled like any child")
+    void filterListIsAChild() {
+        Columns beside = PanelStack.afterOpen(QUEST_OPEN, PanelKind.FILTER);
+        assertEquals(PanelKind.QUEST, beside.left(), "the quest stays column 1");
+        assertEquals(PanelKind.FILTER, beside.right(), "the matches fill column 2");
+
+        Columns peeled = PanelStack.afterClose(beside, true);
+        assertEquals(PanelKind.QUEST, peeled.left(), "peeling the child shows the quest again");
+        assertEquals(PanelKind.NONE, peeled.right());
+
+        Columns alone = PanelStack.afterOpen(Columns.EMPTY, PanelKind.FILTER);
+        assertEquals(PanelKind.FILTER, alone.left(), "a child with no panel under it takes column 1");
+        assertEquals(PanelKind.NONE, alone.right());
+
+        assertEquals(PanelStack.SECOND_WIDTH, PanelStack.defaultWidth(PanelKind.FILTER),
+                "a list opens at list width, not prose width");
     }
 
     @Test
@@ -287,7 +307,8 @@ class PanelStackTest {
         assertEquals(PanelStack.WIDTH, PanelStack.defaultWidth(PanelKind.QUEST));
         assertEquals(PanelStack.WIDTH, PanelStack.defaultWidth(PanelKind.TOOLS),
                 "the dock is an ordinary rail width-wise: its rows are labelled fields and switches");
-        for (PanelKind list : List.of(PanelKind.PICKER, PanelKind.TEXTURE, PanelKind.TABLE_BROWSER)) {
+        for (PanelKind list : List.of(PanelKind.PICKER, PanelKind.TEXTURE, PanelKind.TABLE_BROWSER,
+                PanelKind.FILTER)) {
             assertEquals(PanelStack.SECOND_WIDTH, PanelStack.defaultWidth(list),
                     list + " is a list of names rather than something you read, so it opens narrow");
         }
@@ -308,7 +329,8 @@ class PanelStackTest {
 
     /** The kinds whose content is a list of names rather than prose. */
     private static boolean list(PanelKind kind) {
-        return kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER;
+        return kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER
+                || kind == PanelKind.FILTER;
     }
 
     @Test

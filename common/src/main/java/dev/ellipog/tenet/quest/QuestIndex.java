@@ -1196,6 +1196,132 @@ public final class QuestIndex {
     }
 
     /**
+     * One quest's fresh decode, in manifest order, for a chapter being refreshed without a reload.
+     */
+    public record FreshQuest(Quest quest, String file, JsonDocument document, String path) {
+    }
+
+    /**
+     * One chapter's fresh decode, for a chapter being refreshed without a reload: the chapter id
+     * the refresh was asked for, the decoded chapter, its manifest document and display, and its
+     * quests in manifest order.
+     */
+    public record FreshChapter(String chapterId, Chapter chapter, JsonDocument manifestDocument,
+                               String manifestDisplay, java.util.List<FreshQuest> quests) {
+    }
+
+    /**
+     * This index with one chapter's entries replaced by fresh decodes — the targeted half of a
+     * cosmetic refresh, which re-reads the edited chapter instead of the whole tree.
+     *
+     * <p>Only cosmetic edits may come this way: positions, names and pictures, never ids, aliases,
+     * edges or tasks, so every identifier still claims exactly what it claimed and the maps need
+     * new values under old keys rather than a new claiming walk. Tag lookups need nothing at all:
+     * they walk these lists, so swapped entries answer with their new words by themselves.
+     *
+     * <p>The swap is total within the chapter — its entry, its quests, and its object inside its
+     * group's chapter list all become the new ones together — because the loader hands one Chapter
+     * object to all three places and they must never disagree about which one it is. The flat
+     * quest list is rebuilt chapter by chapter rather than spliced, so declaration order survives
+     * whatever order the old list happened to be in.
+     *
+     * @return the patched index, or null when this index holds no such chapter (the caller
+     *         answers that with a full reload, which is always correct)
+     */
+    public QuestIndex withRefreshedChapter(FreshChapter fresh) {
+        String chapterId = fresh.chapterId();
+        Chapter chapter = fresh.chapter();
+        java.util.List<FreshQuest> quests = fresh.quests();
+        ChapterEntry oldChapter = chaptersByIdentifier.get(chapterId);
+        if (oldChapter == null) {
+            return null;
+        }
+        String groupId = oldChapter.groupId();
+        ChapterEntry chapterEntry = new ChapterEntry(groupId, chapter, oldChapter.file(),
+                fresh.manifestDocument(), fresh.manifestDisplay());
+
+        List<QuestEntry> chapterQuests = new ArrayList<>(quests.size());
+        for (int index = 0; index < quests.size(); index++) {
+            FreshQuest decoded = quests.get(index);
+            chapterQuests.add(new QuestEntry(groupId, chapter, decoded.quest(), index, decoded.file(),
+                    decoded.document(), decoded.path()));
+        }
+
+        List<ChapterEntry> chapterList = new ArrayList<>(chapters.size());
+        for (ChapterEntry entry : chapters) {
+            chapterList.add(entry.chapter().id().equals(chapterId) ? chapterEntry : entry);
+        }
+
+        List<GroupEntry> groupList = new ArrayList<>(groups.size());
+        for (GroupEntry entry : groups) {
+            if (!entry.group().id().equals(groupId)) {
+                groupList.add(entry);
+                continue;
+            }
+            List<Chapter> memberChapters = new ArrayList<>(entry.group().chapters().size());
+            for (Chapter member : entry.group().chapters()) {
+                memberChapters.add(member.id().equals(chapterId) ? chapter : member);
+            }
+            ChapterGroup group = entry.group();
+            groupList.add(new GroupEntry(
+                    new ChapterGroup(group.id(), group.title(), group.description(), group.icon(),
+                            group.aliases(), group.collapsedByDefault(), group.tags(), memberChapters),
+                    entry.file(), entry.document(), entry.path()));
+        }
+
+        List<QuestEntry> questList = new ArrayList<>(this.quests.size());
+        Map<String, List<QuestEntry>> byChapter = new LinkedHashMap<>(questsByChapterId);
+        byChapter.put(chapterId, List.copyOf(chapterQuests));
+        for (ChapterEntry entry : chapterList) {
+            questList.addAll(byChapter.getOrDefault(entry.chapter().id(), List.of()));
+        }
+
+        Map<String, QuestEntry> claimed = new LinkedHashMap<>();
+        for (Map.Entry<String, QuestEntry> named : byIdentifier.entrySet()) {
+            if (!named.getValue().chapterId().equals(chapterId)) {
+                claimed.put(named.getKey(), named.getValue());
+            }
+        }
+        for (QuestEntry entry : chapterQuests) {
+            claimed.putIfAbsent(entry.quest().id(), entry);
+            for (String alias : entry.quest().aliases()) {
+                claimed.putIfAbsent(alias, entry);
+            }
+        }
+        Map<String, ChapterEntry> claimedChapters = new LinkedHashMap<>();
+        for (Map.Entry<String, ChapterEntry> named : chaptersByIdentifier.entrySet()) {
+            if (!named.getValue().chapter().id().equals(chapterId)) {
+                claimedChapters.put(named.getKey(), named.getValue());
+            }
+        }
+        claimedChapters.put(chapterId, chapterEntry);
+        for (String alias : chapter.aliases()) {
+            claimedChapters.putIfAbsent(alias, chapterEntry);
+        }
+        GroupEntry groupEntry = null;
+        for (GroupEntry entry : groupList) {
+            if (entry.group().id().equals(groupId)) {
+                groupEntry = entry;
+            }
+        }
+        Map<String, GroupEntry> claimedGroups = new LinkedHashMap<>();
+        for (Map.Entry<String, GroupEntry> named : groupsByIdentifier.entrySet()) {
+            if (groupEntry == null || !named.getValue().group().id().equals(groupId)) {
+                claimedGroups.put(named.getKey(), named.getValue());
+            }
+        }
+        if (groupEntry != null) {
+            claimedGroups.put(groupId, groupEntry);
+            for (String alias : groupEntry.group().aliases()) {
+                claimedGroups.putIfAbsent(alias, groupEntry);
+            }
+        }
+
+        return new QuestIndex(groupList, chapterList, questList, byChapter, claimed, claimedChapters,
+                claimedGroups);
+    }
+
+    /**
      * How many chapters there are.
      *
      * <p>This counted the lookup table's distinct values, because the list did not exist. Counting a

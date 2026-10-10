@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The icon union: an item, a texture file, or an entity drawn as its egg.
+ * The icon union: an item, a texture file, an atlas region, or an entity drawn as its egg.
  *
  * <p>Batch 3 of the migration work. FTB Quests' icons can be {@code custom_icon} texture paths or
  * {@code entity_face} entity ids; this mod knew only items, so a converted pack's pictures had
@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the real validator over it, which is what makes this page fail first if an arm quietly becomes
  * required or changes meaning.
  */
-@DisplayName("icon union: item, texture, or entity")
+@DisplayName("icon union: item, texture, sprite, or entity")
 class IconTest {
 
     private static Icon icon(String text) {
@@ -81,13 +81,23 @@ class IconTest {
         }
 
         @Test
-        @DisplayName("an object with no arm key is refused, naming the three keys")
+        @DisplayName("a sprite object is the sprite arm")
+        void spriteArm() {
+            Icon parsed = icon("""
+                    {"sprite": "occultism:block/chalk_glyph/0"}""");
+
+            var sprite = assertInstanceOf(Icon.Sprite.class, parsed);
+            assertEquals("occultism:block/chalk_glyph/0", sprite.sprite().toString());
+        }
+
+        @Test
+        @DisplayName("an object with no arm key is refused, naming the four keys")
         void noArmIsRefused() {
             DataResult<Icon> result =
                     Icon.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString("{}"));
 
             assertTrue(result.error().isPresent(), "an armless icon must not decode");
-            assertTrue(result.error().orElseThrow().message().contains("texture"),
+            assertTrue(result.error().orElseThrow().message().contains("sprite"),
                     "and the message names the arms: " + result.error().orElseThrow().message());
         }
 
@@ -99,6 +109,8 @@ class IconTest {
                             {"item": "minecraft:stone", "count": 2}""",
                     """
                             {"texture": "my_pack:textures/gui/emblem.png"}""",
+                    """
+                            {"sprite": "occultism:block/chalk_glyph/0"}""",
                     """
                             {"entity": "minecraft:creeper"}""" }) {
                 Icon parsed = icon(text);
@@ -125,11 +137,14 @@ class IconTest {
         }
 
         @Test
-        @DisplayName("a quest, a chapter and a group all read the texture and entity arms")
+        @DisplayName("a quest, a chapter and a group all read every arm")
         void allHomesReadAllArms() {
             assertInstanceOf(Icon.Texture.class, quest("""
                     {"id": "one", "title": "One",
                      "icon": {"texture": "my_pack:textures/gui/emblem.png"}}""").icon());
+            assertInstanceOf(Icon.Sprite.class, quest("""
+                    {"id": "one", "title": "One",
+                     "icon": {"sprite": "occultism:block/chalk_glyph/0"}}""").icon());
             assertInstanceOf(Icon.Entity.class, quest("""
                     {"id": "one", "title": "One",
                      "icon": {"entity": "minecraft:creeper"}}""").icon());
@@ -184,17 +199,47 @@ class IconTest {
         }
 
         @Test
-        @DisplayName("all three arms are known fields on a quest icon")
+        @DisplayName("all four arms are known fields on a quest icon")
         void allArmsAreKnown() {
             assertFalse(validateQuest("""
                     {"id": "one", "title": "One",
                      "icon": {"texture": "my_pack:textures/gui/emblem.png"}}""").hasErrors());
             assertFalse(validateQuest("""
                     {"id": "one", "title": "One",
+                     "icon": {"sprite": "occultism:block/chalk_glyph/0"}}""").hasErrors());
+            assertFalse(validateQuest("""
+                    {"id": "one", "title": "One",
                      "icon": {"entity": "minecraft:creeper"}}""").hasErrors());
             assertFalse(validateQuest("""
                     {"id": "one", "title": "One",
                      "icon": {"item": "minecraft:stone"}}""").hasErrors());
+        }
+
+        @Test
+        @DisplayName("a blank sprite id is an error")
+        void blankSpriteIsAnError() {
+            assertTrue(validateQuest("""
+                    {"id": "one", "title": "One", "icon": {"sprite": "  "}}""").hasErrors());
+        }
+
+        @Test
+        @DisplayName("two arms is a warning naming the winner, and the quest still loads")
+        void twoArmsWarns() {
+            Problems problems = validateQuest("""
+                    {"id": "one", "title": "One",
+                     "icon": {"texture": "my_pack:textures/gui/emblem.png",
+                              "sprite": "occultism:block/chalk_glyph/0"}}""");
+
+            assertFalse(problems.hasErrors(), "a second arm must not cost the quest");
+            var warning = problems.all().stream()
+                    .filter(problem -> problem.message().contains("texture"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "the ignored arm is still said, naming it"));
+            assertEquals(dev.ellipog.armature.api.data.DataProblem.Severity.WARNING,
+                    warning.severity(), "a warning, like an unknown item");
+            assertTrue(warning.message().contains("sprite"),
+                    "and the winner is named: " + warning.message());
         }
 
         @Test

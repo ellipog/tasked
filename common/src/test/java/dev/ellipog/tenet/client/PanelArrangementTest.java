@@ -121,10 +121,10 @@ class PanelArrangementTest {
         assertFalse(all.stream().anyMatch(now -> now.left() == PanelKind.TOOLS
                         || now.right() == PanelKind.TOOLS),
                 "and so nothing the walk reaches files the author's tools into a panel column");
-        assertEquals(4, all.stream().filter(now -> now.right() != PanelKind.NONE).map(Columns::right)
+        assertEquals(5, all.stream().filter(now -> now.right() != PanelKind.NONE).map(Columns::right)
                         .distinct().count(),
-                "and every kind that can be a child has to be reachable as one -- four of them, because the "
-                        + "child rail is the four lists and nothing else, or property 1 is only tested on "
+                "and every kind that can be a child has to be reachable as one -- five of them, because the "
+                        + "child rail is the five lists and nothing else, or property 1 is only tested on "
                         + "one rail");
         assertEquals(3, all.stream().map(Columns::fold).distinct().count(), "every fold");
         assertTrue(all.stream().anyMatch(now -> now.right() != PanelKind.NONE),

@@ -46,15 +46,18 @@ import java.util.Optional;
  *                      empty otherwise. Drawn through the blit rather than the stack; an entity
  *                      override arrives here already resolved to its egg (or the type's own picture
  *                      when it has none), because the wire carries pictures, not registries.
- * @param picture       the author's item picture when the author overrode the picture with an item
- *                      or an entity egg, and empty otherwise. Drawn instead of {@code item}; never
- *                      read for recipes, progression, or viewer indexes, which all read {@code item}
- *                      and the tag the wire carries beside it.
+ * @param spriteIcon    the atlas region when the author overrode the picture with a sprite, and
+ *                      empty otherwise. Drawn from the atlas; like the texture arm, never both.
+ * @param picture       the picture the row draws instead of {@code item}: the author's item
+ *                      picture when the author overrode it, or the type's own resolved picture
+ *                      (a kill task's spawn egg) when the type names one. Never read for recipes,
+ *                      progression, or viewer indexes, which all read {@code item} and the tag the
+ *                      wire carries beside it.
  */
 public record TaskDisplay(Optional<ItemRef> item, String label, String labelFallback, String labelArg, int count,
-                          String textureIcon, Optional<ItemRef> picture) {
+                          String textureIcon, String spriteIcon, Optional<ItemRef> picture) {
 
-    public static final TaskDisplay NONE = new TaskDisplay(Optional.empty(), "", "", "", 1, "", Optional.empty());
+    public static final TaskDisplay NONE = new TaskDisplay(Optional.empty(), "", "", "", 1, "", "", Optional.empty());
 
     public TaskDisplay {
         item = item == null ? Optional.empty() : item;
@@ -62,17 +65,18 @@ public record TaskDisplay(Optional<ItemRef> item, String label, String labelFall
         labelFallback = labelFallback == null ? "" : labelFallback;
         labelArg = labelArg == null ? "" : labelArg;
         textureIcon = textureIcon == null ? "" : textureIcon;
+        spriteIcon = spriteIcon == null ? "" : spriteIcon;
         picture = picture == null ? Optional.empty() : picture;
     }
 
     /** A task about an item, drawn with the item's own name. */
     public static TaskDisplay ofItem(ItemRef item, int count) {
-        return new TaskDisplay(Optional.of(item), "", "", "", Math.max(1, count), "", Optional.empty());
+        return new TaskDisplay(Optional.of(item), "", "", "", Math.max(1, count), "", "", Optional.empty());
     }
 
     /** A task with no item, drawn with this text. Literal — a key with no translation. */
     public static TaskDisplay ofText(String text, int count) {
-        return new TaskDisplay(Optional.empty(), text, "", "", Math.max(1, count), "", Optional.empty());
+        return new TaskDisplay(Optional.empty(), text, "", "", Math.max(1, count), "", "", Optional.empty());
     }
 
     /**
@@ -83,18 +87,18 @@ public record TaskDisplay(Optional<ItemRef> item, String label, String labelFall
      * five-argument form, and the note on {@code labelArg} for why the difference is not cosmetic.
      */
     public static TaskDisplay ofTranslatableText(String key, String fallback, int count) {
-        return new TaskDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "", Optional.empty());
+        return new TaskDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "", "", Optional.empty());
     }
 
     /** A task with no item, whose sentence names something: the key is formatted with {@code labelArg}. */
     public static TaskDisplay ofTranslatableText(String key, String fallback, String labelArg, int count) {
-        return new TaskDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "", Optional.empty());
+        return new TaskDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "", "", Optional.empty());
     }
 
     /** This display wearing the author's words instead of the type's own sentence. */
     public TaskDisplay withAuthorTitle(dev.ellipog.tenet.quest.QuestText title) {
         return new TaskDisplay(item, title.value(), title.fallback().orElse(""), labelArg, count,
-                textureIcon, picture);
+                textureIcon, spriteIcon, picture);
     }
 
     /**
@@ -106,7 +110,19 @@ public record TaskDisplay(Optional<ItemRef> item, String label, String labelFall
      * checkmark wearing a torch gained recipes it never asked for.
      */
     public TaskDisplay withAuthorItem(ItemRef ref) {
-        return new TaskDisplay(item, label, labelFallback, labelArg, count, "", Optional.of(ref));
+        return new TaskDisplay(item, label, labelFallback, labelArg, count, "", "", Optional.of(ref));
+    }
+
+    /**
+     * This display wearing the type's own resolved picture: a kill task's spawn egg, computed
+     * where the registries live.
+     *
+     * <p>Not an author override — the file names no picture — but it travels in the same field,
+     * because every surface that draws a picture reads {@code picture} first. An author icon
+     * applied afterwards still wins, through the same overwrite the author arms use.
+     */
+    public TaskDisplay withTypePicture(ItemRef ref) {
+        return new TaskDisplay(item, label, labelFallback, labelArg, count, "", "", Optional.of(ref));
     }
 
     /**
@@ -117,6 +133,16 @@ public record TaskDisplay(Optional<ItemRef> item, String label, String labelFall
      * task wearing a texture lost its recipes entirely.
      */
     public TaskDisplay withAuthorTexture(String path) {
-        return new TaskDisplay(item, label, labelFallback, labelArg, count, path, Optional.empty());
+        return new TaskDisplay(item, label, labelFallback, labelArg, count, path, "", Optional.empty());
+    }
+
+    /**
+     * This display wearing the author's atlas sprite alongside the type's own requirement.
+     *
+     * <p>Like the texture arm: a picture, so the requirement stays what it was, and the other
+     * picture arms go — one override at a time, or two pictures would claim one row.
+     */
+    public TaskDisplay withAuthorSprite(String id) {
+        return new TaskDisplay(item, label, labelFallback, labelArg, count, "", id, Optional.empty());
     }
 }

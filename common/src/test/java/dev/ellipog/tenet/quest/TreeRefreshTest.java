@@ -28,6 +28,9 @@ class TreeRefreshTest {
     /** What the flush was handed, in order. */
     private final List<TreeRefresh.Touch> flushed = new ArrayList<>();
 
+    /** The pinned clock, millis. Tests move it by hand; production never sees it. */
+    private final long[] now = {100_000L};
+
     /**
      * The flag is static, and a case that fails before its flush leaves it armed — which would fail the
      * next case too and read as two bugs rather than one. Consuming whatever is owed is the cheapest way
@@ -35,12 +38,21 @@ class TreeRefreshTest {
      */
     @BeforeEach
     void nothingIsOwed() {
-        TreeRefresh.flush(touch -> {
+        TreeRefresh.setClock(() -> now[0]);
+        now[0] = 100_000L;
+        TreeRefresh.clear();
+        TreeRefresh.flush((touch, chapters) -> {
         });
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void restoreClock() {
+        TreeRefresh.setClock(System::currentTimeMillis);
+        TreeRefresh.clear();
+    }
+
     private void flush() {
-        TreeRefresh.flush(flushed::add);
+        TreeRefresh.flush((touch, chapters) -> flushed.add(touch));
     }
 
     @Test
@@ -125,7 +137,7 @@ class TreeRefreshTest {
     @DisplayName("a request that arrives during the flush arms the next one")
     void aRequestDuringTheFlushIsNotLost() {
         TreeRefresh.request(TreeRefresh.Touch.COSMETIC);
-        TreeRefresh.flush(touch -> {
+        TreeRefresh.flush((touch, chapters) -> {
             flushed.add(touch);
             // The same tick's next packet, or another author's edit: it must owe a flush of its own.
             TreeRefresh.request(TreeRefresh.Touch.CONTENT);
@@ -135,5 +147,133 @@ class TreeRefreshTest {
         flush();
         assertEquals(List.of(TreeRefresh.Touch.COSMETIC, TreeRefresh.Touch.CONTENT), flushed);
         assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("a cosmetic flush names the chapters it would re-read")
+    void cosmeticFlushNamesChapters() {
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "second_steps");
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+
+        List<java.util.Set<String>> handed = new ArrayList<>();
+        TreeRefresh.flush((touch, chapters) -> {
+            flushed.add(touch);
+            handed.add(chapters);
+        });
+        assertEquals(List.of(TreeRefresh.Touch.COSMETIC), flushed);
+        assertEquals(List.of(java.util.Set.of("first_steps", "second_steps")), handed,
+                "arrival order, deduplicated: the flush re-reads each dirty chapter once");
+        assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("a table edit sharing a tick with a nudge still owes its tables")
+    void mixedTickKeepsTables() {
+        TreeRefresh.requestTables();
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+
+        assertEquals(TreeRefresh.Touch.COSMETIC, TreeRefresh.pendingTouch(),
+                "the touch collapses, but the tables must not collapse with it");
+        assertTrue(TreeRefresh.drainTables(), "read once, by the flush");
+        assertFalse(TreeRefresh.drainTables(), "and consumed by the read");
+        flush();
+        assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("a chapterless cosmetic still means a full reload, and clear forgets all of it")
+    void chapterlessCosmeticMeansFullReload() {
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "");
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, null);
+
+        List<java.util.Set<String>> handed = new ArrayList<>();
+        TreeRefresh.flush((touch, chapters) -> {
+            flushed.add(touch);
+            handed.add(chapters);
+        });
+        assertEquals(List.of(java.util.Set.of()), handed,
+                "blank chapters are never tracked: a refresh of nothing is not an answer");
+        assertFalse(TreeRefresh.pending());
+
+        TreeRefresh.request(TreeRefresh.Touch.CONTENT, "first_steps");
+        TreeRefresh.clear();
+        assertFalse(TreeRefresh.pending(), "a reload already did the work");
+        int flushedBefore = flushed.size();
+        flush();
+        assertEquals(flushedBefore, flushed.size(), "and nothing runs after it");
+    }
+
+    @Test
+    @DisplayName("even a lone cosmetic edit waits out the quiet window")
+    void loneCosmeticWaitsToo() {
+        // The price of coalescing, stated plainly: the gate cannot know whether a second op
+        // is coming, so it always waits. The author never feels it — optimistic drafts cover
+        // their own echo — and anything heavier than cosmetic skips the wait entirely.
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+        assertFalse(TreeRefresh.due());
+        now[0] += TreeRefresh.COSMETIC_QUIET_MILLIS;
+        assertTrue(TreeRefresh.due());
+        flush();
+        assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("two quick cosmetic edits cost one refresh")
+    void twoQuickEditsCostOneRefresh() {
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+        assertFalse(TreeRefresh.due(), "the quiet window just opened");
+
+        now[0] += 200L;
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+        assertFalse(TreeRefresh.due(), "200 ms after the last op is inside it");
+
+        now[0] += 500L;
+        assertTrue(TreeRefresh.due(), "500 ms after the last op the window has passed");
+        flush();
+        assertEquals(1, flushed.size(), "two ops, one refresh, one broadcast");
+        assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("a slow trickle of cosmetic edits still syncs inside the cap")
+    void trickleSyncsInsideCap() {
+        // An op every 100 ms forever: quiescence never arrives on its own, so the cap fires
+        // about every two seconds and the server breathes instead of reloading per op.
+        for (int round = 0; round < 25; round++) {
+            now[0] += 100L;
+            TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+            if (TreeRefresh.due()) {
+                flush();
+            }
+        }
+        assertEquals(1, flushed.size(), "first cap firing covers the whole trickle so far");
+        now[0] += TreeRefresh.COSMETIC_MAX_MILLIS;
+        assertTrue(TreeRefresh.due());
+        flush();
+        assertEquals(2, flushed.size());
+        assertFalse(TreeRefresh.pending(), "and the tail goes out with it");
+    }
+
+    @Test
+    @DisplayName("anything heavier than cosmetic ignores the clock")
+    void heavyEditsIgnoreTheClock() {
+        TreeRefresh.request(TreeRefresh.Touch.COSMETIC, "first_steps");
+        flush();
+        now[0] += 10L;
+
+        TreeRefresh.request(TreeRefresh.Touch.CONTENT, "first_steps");
+        assertTrue(TreeRefresh.due(), "stored progress may have moved — no waiting");
+        TreeRefresh.request(TreeRefresh.Touch.TABLES);
+        assertTrue(TreeRefresh.due());
+        flush();
+        assertFalse(TreeRefresh.pending());
+    }
+
+    @Test
+    @DisplayName("nothing pending is never due")
+    void nothingPendingIsNeverDue() {
+        now[0] += 1_000_000L;
+        assertFalse(TreeRefresh.due());
     }
 }

@@ -48,7 +48,7 @@ class PinnedPanelLayoutTest {
     }
 
     private static PinnedPanelLayout.Task task(String text, int progress, int count, boolean done) {
-        return new PinnedPanelLayout.Task(text, progress, count, done);
+        return new PinnedPanelLayout.Task(text, progress, count, done, false);
     }
 
     private static PinnedPanelLayout.Pin pin(String title, boolean complete, PinnedPanelLayout.Task... tasks) {

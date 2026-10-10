@@ -152,8 +152,10 @@ public final class PinnedPanelLayout {
      * @param progress how far along it is
      * @param count    what it is counting to
      * @param done     whether it is finished, and so wears the tick
+     * @param checkmark whether this row wears the checkmark state box: a bare checkmark task,
+     *                 whose done flag then chooses the checked picture over the empty one
      */
-    public record Task(String text, int progress, int count, boolean done) {
+    public record Task(String text, int progress, int count, boolean done, boolean checkmark) {
     }
 
     /**
@@ -213,7 +215,7 @@ public final class PinnedPanelLayout {
      *                  the second opinion this class exists to prevent
      */
     public record Row(Kind kind, String text, String note, int y, int height, int width, int pinIndex,
-                      int taskIndex, int progress, int count, boolean done, int barY) {
+                      int taskIndex, int progress, int count, boolean done, boolean checkmark, int barY) {
     }
 
     /** One quest's box: its size, and every row in it, placed relative to the box's own top-left. */
@@ -298,7 +300,7 @@ public final class PinnedPanelLayout {
                     int rowH = barred ? taskRow : titleRow;
                     int barY = barred ? TEXT_TOP + line + BAR_GAP : -1;
                     rows.add(new Row(Kind.TASK, task.text(), "", cursor, rowH, 0, p, i,
-                            task.progress(), task.count(), task.done(), barY));
+                            task.progress(), task.count(), task.done(), task.checkmark(), barY));
                     cursor += rowH + GAP;
                 }
                 if (pin.tasks().size() > listed) {
@@ -348,7 +350,7 @@ public final class PinnedPanelLayout {
     private static int add(List<Row> rows, Kind kind, String text, String note, int top, int height,
                            int pinIndex, int taskIndex) {
         rows.add(new Row(kind, text == null ? "" : text, note == null ? "" : note, top, height, 0,
-                pinIndex, taskIndex, 0, 0, false, -1));
+                pinIndex, taskIndex, 0, 0, false, false, -1));
         return top + height + GAP;
     }
 
@@ -426,6 +428,6 @@ public final class PinnedPanelLayout {
             }
         }
         return new Row(row.kind(), text, note, row.y(), row.height(), content, row.pinIndex(),
-                row.taskIndex(), row.progress(), row.count(), row.done(), row.barY());
+                row.taskIndex(), row.progress(), row.count(), row.done(), row.checkmark(), row.barY());
     }
 }

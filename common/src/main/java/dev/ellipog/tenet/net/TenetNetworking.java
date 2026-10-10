@@ -1145,7 +1145,8 @@ public final class TenetNetworking {
      * rather than deciding here is deliberate: the caller that decided this for itself is the reason a
      * coordinate nudge used to cost every player a full progress sync.
      */
-    public static void refreshTree(MinecraftServer server, TreeRefresh.Touch touch) {
+    public static void refreshTree(MinecraftServer server, TreeRefresh.Touch touch,
+                                   java.util.Set<String> chapters) {
         // The flush's own timing, around the two halves `QuestLoader`'s phase line cannot see: the reload
         // as a whole (its split has its own line) and the broadcast. Gated before the first clock read, for
         // the reason `handleEditorOp` gives.
@@ -1154,9 +1155,30 @@ public final class TenetNetworking {
         // Kept rather than discarded: its problems are the cross-file faults nothing else can see, and they
         // are only knowable here -- the op was applied and answered synchronously, before this reload ran.
         dev.ellipog.tenet.quest.QuestLoader.Result reloaded;
+        dev.ellipog.armature.api.data.Problems before = TenetQuests.problems();
+        boolean tables = TreeRefresh.drainTables();
         if (touch.scope() == TreeRefresh.Touch.Scope.TABLES) {
             TenetQuests.reloadTables(server);
             reloaded = null;
+        }
+        else if (touch == TreeRefresh.Touch.COSMETIC && chapters != null && !chapters.isEmpty()
+                && TenetQuests.refreshChapters(chapters, serverOps(server))) {
+            // The cheap path: the chapters patched in place, so there is nothing new to say about
+            // problems (a cosmetic op cannot have made any) and nothing to re-resolve. A table edit
+            // that shared the tick is re-read first — cheap beside the chapters, and dropping it
+            // would leave its file unwritten to the tree until the next full reload. The tree
+            // broadcast below is the whole of what anyone is owed.
+            if (tables) {
+                TenetQuests.reloadTables(server);
+            }
+            long reloadNanos = timing ? System.nanoTime() - reloadStarted : 0L;
+            sendTreeToAll(server, touch.progress());
+            if (timing) {
+                QuestSync.WireTiming wire = QuestSync.drainWireTiming();
+                dev.ellipog.tenet.editor.EditPhases.flushed(reloadNanos, wire.encodeNanos(),
+                        wire.deflateNanos(), server.getPlayerList().getPlayers().size());
+            }
+            return;
         }
         else {
             reloaded = TenetQuests.reload(server);
@@ -1165,9 +1187,9 @@ public final class TenetNetworking {
         int players = server.getPlayerList().getPlayers().size();
         sendTreeToAll(server, touch.progress());
         // After the tree, so a client that reads both in one frame draws the pack before being told what is
-        // wrong with it -- and only when there is something to say, because an empty report would be a
-        // message about nothing on every coalesced edit.
-        if (reloaded != null) {
+        // wrong with it -- and only when there is something NEW to say. Re-sending an unchanged report
+        // re-toasts every fault on every edit, which is how a drag learned to announce sixteen warnings.
+        if (reloaded != null && ProblemsSync.changed(before, reloaded.problems())) {
             sendProblemsToAll(server, reloaded.problems());
         }
         if (timing) {
@@ -1184,7 +1206,7 @@ public final class TenetNetworking {
      * See {@code TreeRefresh.Touch} for why the two refreshes exist.
      */
     public static void refreshTables(MinecraftServer server) {
-        refreshTree(server, TreeRefresh.Touch.TABLES);
+        refreshTree(server, TreeRefresh.Touch.TABLES, java.util.Set.of());
     }
 
     /**
@@ -1463,6 +1485,24 @@ public final class TenetNetworking {
      * edit, and broadcasting one author's validation error to the whole server would be telling other players
      * about a file they are not editing.
      */
+    /**
+     * The ops an edit validates with: the server's own registry ops, which is what a load judges
+     * with. Saving with blind ops refuses files the loader accepts — registry-backed components
+     * decode against registries — so the two must agree, or one enchanted reward vetoes every
+     * edit in its chapter. See {@code TenetQuests.reload(MinecraftServer)} for the load half.
+     */
+    private static com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> serverOps(
+            ServerPlayer sender) {
+        return serverOps(sender.getServer());
+    }
+
+    /** The same, where only the server is at hand: the refresh flush owns no player. */
+    private static com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> serverOps(
+            net.minecraft.server.MinecraftServer server) {
+        return server.registryAccess()
+                .createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
     private static void handleEditorOp(EditorOpPayload payload, ServerPlayer sender) {
         if (!QuestAuthority.mayEdit(sender)) {
             // Refused, not ignored, and with the level named: an author whose permissions are short needs to
@@ -1479,7 +1519,7 @@ public final class TenetNetworking {
         // otherwise have to agree about what a "chapter" field means for a table.
         dev.ellipog.tenet.editor.TableOp tableOp = dev.ellipog.tenet.editor.TableOps.read(json);
         if (tableOp != null) {
-            EditorOps.Applied applied = TenetQuests.tables().apply(tableOp);
+            EditorOps.Applied applied = TenetQuests.tables().apply(tableOp, serverOps(sender));
             if (applied.ok()) {
                 // Only the tables can have moved, so only the tables are re-read and progress is left
                 // alone -- see `TreeRefresh.Touch`.
@@ -1504,7 +1544,7 @@ public final class TenetNetworking {
         // every instrument in this codebase keeps, and it is what lets one sit on an apply path.
         boolean timing = dev.ellipog.tenet.editor.EditPhases.on();
         long applyStarted = timing ? System.nanoTime() : 0L;
-        EditorOps.Applied applied = TenetQuests.editors().apply(payload.chapter(), op);
+        EditorOps.Applied applied = TenetQuests.editors().apply(payload.chapter(), op, serverOps(sender));
         if (timing) {
             dev.ellipog.tenet.editor.EditPhases.applied(System.nanoTime() - applyStarted);
         }
@@ -1515,8 +1555,11 @@ public final class TenetNetworking {
             //
             // Armed with what *this op* can have moved rather than with "something happened", which is
             // the whole point of the reach: a drag sends one op per tick, and the old flag made every
-            // one of them owe a full progress sync to every connected player.
-            TreeRefresh.request(EditorOps.reachOf(op));
+            // one of them owe a full progress sync to every connected player. The chapter travels
+            // beside it when the op is chapter-scoped, so a cosmetic flush re-reads that chapter
+            // instead of the whole tree.
+            TreeRefresh.request(EditorOps.reachOf(op),
+                    EditorOps.refreshChapter(op, payload.chapter()).orElse(null));
         }
         reply(sender, payload.chapter(), applied.ok(),
                 applied.questId() == null ? "" : applied.questId(),
@@ -1649,7 +1692,8 @@ public final class TenetNetworking {
         else {
             imported = dev.ellipog.tenet.quest.loot.TableImport.fromPlayer(sender);
         }
-        EditorOps.Applied applied = TenetQuests.tables().importInto(payload.address(), imported.entries());
+        EditorOps.Applied applied =
+                TenetQuests.tables().importInto(payload.address(), imported.entries(), serverOps(sender));
         if (applied.ok()) {
             TreeRefresh.requestTables();
         }

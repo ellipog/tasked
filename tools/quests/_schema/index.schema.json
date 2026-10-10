@@ -168,7 +168,7 @@
       }
     },
     "icon": {
-      "description": "What the book wears in its header: an item, a texture file, or an entity drawn as its spawn egg. A bare string is also accepted, for an item id written before the union.",
+      "description": "What the book wears in its header: an item, a texture file, an atlas region, or an entity drawn as its spawn egg. A bare string is also accepted, for an item id written before the union.",
       "anyOf": [
         { "$ref": "#/definitions/itemRef" },
         {
@@ -178,6 +178,17 @@
             "texture": {
               "type": "string",
               "description": "A texture file by its own path, e.g. my_pack:textures/gui/emblem.png."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["sprite"],
+          "properties": {
+            "sprite": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+              "description": "An atlas region id, e.g. minecraft:block/sculk."
             }
           }
         },

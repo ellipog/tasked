@@ -462,6 +462,9 @@ class QuestPanelLayoutTest {
     @DisplayName("labels are said like fields, and the index is not one of them")
     void labels() {
         assertEquals("Icon Item", QuestPanelLayout.labelFor("icon.item"));
+        assertEquals("Icon Texture", QuestPanelLayout.labelFor("icon.texture"));
+        assertEquals("Icon Sprite", QuestPanelLayout.labelFor("tasks.0.icon.sprite"));
+        assertEquals("Icon Entity", QuestPanelLayout.labelFor("icon.entity"));
         assertEquals("Count", QuestPanelLayout.labelFor("tasks.0.count"));
         assertEquals("Repeat Cooldown Ticks", QuestPanelLayout.labelFor("repeatCooldownTicks"));
         assertEquals("Item", QuestPanelLayout.labelFor("rewards.0.item"));

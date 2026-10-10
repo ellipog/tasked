@@ -232,7 +232,7 @@ class SidebarLayoutTest {
                     List.of(new SidebarLayout.Group("present", "Present", false)),
                     List.of(new SidebarLayout.ChapterRow("orphan", "Orphan", "absent")));
 
-            assertEquals(List.of("group:present", "chapter:orphan"), keys(sidebar));
+            assertEquals(List.of("chapter:orphan", "group:present"), keys(sidebar));
             assertEquals(0, row(sidebar, "chapter:orphan").depth(),
                     "an orphan is a root, so it is not indented under a heading that does not exist");
             assertEquals(2, sidebar.chapterCount() + sidebar.groupCount(),
@@ -243,15 +243,15 @@ class SidebarLayoutTest {
         @DisplayName("a half-converted pack draws its groups and its loose chapters, both in order")
         void groupsAndLooseChaptersCoexist() {
             // Not a hypothetical: the folder layout is read beside the flat one forever, so a pack
-            // partway through converting has both. The loose chapters come last, which is written down
-            // here rather than left for somebody to discover -- the table's order is "the groups, then
-            // whatever names none of them".
+            // partway through converting has both. The loose chapters come first, like FTB Quests'
+            // default group -- which always sorts before the named ones -- so a converted pack's
+            // welcome chapter reads as first rather than last.
             SidebarLayout sidebar = SidebarLayout.of(
                     List.of(new SidebarLayout.Group("converted", "Converted", false)),
                     List.of(new SidebarLayout.ChapterRow("inside", "Inside", "converted"),
                             new SidebarLayout.ChapterRow("loose", "Loose", "")));
 
-            assertEquals(List.of("group:converted", "chapter:inside", "chapter:loose"), keys(sidebar));
+            assertEquals(List.of("chapter:loose", "group:converted", "chapter:inside"), keys(sidebar));
         }
     }
 

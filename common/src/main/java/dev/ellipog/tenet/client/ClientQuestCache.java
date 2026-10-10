@@ -104,9 +104,17 @@ public final class ClientQuestCache {
                              */
                             String textureIcon,
                             /**
-                             * The author's item picture, since version 21, resolved ready to draw.
-                             * Empty when the author set no item picture — which is every task a
-                             * version-20 tree sent. Drawn instead of {@code item}; never read for
+                             * The atlas region when the author overrode the picture with a sprite.
+                             * Empty means the type's own picture. Never beside a texture: the
+                             * display carries one override, like the file it came from.
+                             */
+                            String spriteIcon,
+                            /**
+                             * The item picture, since version 21, resolved ready to draw: the
+                             * author's override when the author set one, or the type's own resolved
+                             * picture (a kill task's spawn egg) otherwise. Empty when neither —
+                             * which is every task a version-20 tree sent. Drawn instead of
+                             * {@code item}; never read for
                              * recipes, progression, or viewer indexes, which all read {@code item}
                              * and {@code tagId}. A picture whose item this build does not have
                              * resolves empty and the row falls back to what it needs, rather than
@@ -126,7 +134,7 @@ public final class ClientQuestCache {
             return !item.isEmpty();
         }
 
-        /** Whether the author overrode the picture with an item. */
+        /** Whether the row carries a picture: an author override, or the type's own resolved one. */
         public boolean hasPicture() {
             return !picture.isEmpty();
         }
@@ -220,6 +228,12 @@ public final class ClientQuestCache {
                                */
                               String textureIcon,
                               /**
+                               * The atlas region when the author overrode the picture with a sprite.
+                               * Empty means the type's own picture. Never beside a texture: the
+                               * display carries one override, like the file it came from.
+                               */
+                              String spriteIcon,
+                              /**
                                * The author's item picture, since version 21, resolved ready to draw.
                                * Empty when the author set no item picture. Drawn instead of
                                * {@code item}; never read for recipes or viewer indexes, which read
@@ -274,22 +288,26 @@ public final class ClientQuestCache {
      * cycling when that task is a filter. FTB's {@code IconAnimation} rule, resolved at draw
      * time rather than at conversion, so a filter's rotation survives the trip.
      *
+     * <p>The priority is deliberate: a cycling filter frame first, then an author or
+     * type-resolved picture (a kill task's egg arrives here), then an item requirement, and
+     * only then the task type's own glyph — a knowledge book says "things to do" where paper
+     * says nothing. Glyphs speak last because a requirement names the quest better than its
+     * kind does, but they speak now: a quest of bare checkmarks used to keep the paper
+     * default, like a quest of nothing.
+     *
      * <p>Empty when the quest names an icon in any arm — an explicit picture always wins — and
-     * when no task has one to lend. The type's own glyph is never adopted: a quest of bare
-     * checkmarks keeps the paper default, like a quest of nothing.
+     * when no task has anything to lend. What calls this falls back to paper, which is the
+     * floor: a quest is never drawn empty.
      */
     public static ItemStack adoptedQuestIcon(Entry entry) {
-        if (!entry.icon().isEmpty() || !entry.iconId().isEmpty() || !entry.textureIcon().isEmpty()) {
+        if (!entry.icon().isEmpty() || !entry.iconId().isEmpty() || !entry.textureIcon().isEmpty()
+                || !entry.spriteIcon().isEmpty()) {
             return ItemStack.EMPTY;
         }
         for (TaskEntry task : entry.tasks()) {
-            if (!task.filter().isEmpty()) {
-                FilterMatches.Matches matches = FilterMatches.of(task.filter());
-                if (matches.shown().isEmpty()) {
-                    continue;
-                }
-                return matches.shown().get(
-                        (int) ((net.minecraft.Util.getMillis() / 1000) % matches.shown().size()));
+            ItemStack frame = filterFrame(task);
+            if (!frame.isEmpty()) {
+                return frame;
             }
             if (!task.picture().isEmpty()) {
                 return task.picture();
@@ -298,7 +316,33 @@ public final class ClientQuestCache {
                 return task.item();
             }
         }
+        for (TaskEntry task : entry.tasks()) {
+            if (!task.icon().isEmpty()) {
+                return task.icon();
+            }
+        }
         return ItemStack.EMPTY;
+    }
+
+    /**
+     * One frame of a filter task's rotation, at FTB's one-picture-a-second cadence: what every
+     * surface showing that task draws with.
+     *
+     * <p>Empty for every non-filter task and for a filter nothing answers to — those draw the
+     * still rule ({@code picture}, then requirement, then glyph) instead. One helper for the
+     * book's rows, the quest adoption above and the HUD pins, because three spellings of the
+     * cadence is how two of them would freeze while the third cycled.
+     */
+    public static ItemStack filterFrame(TaskEntry task) {
+        if (task.filter().isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        FilterMatches.Matches matches = FilterMatches.of(task.filter());
+        if (matches.shown().isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        return matches.shown().get(
+                (int) ((net.minecraft.Util.getMillis() / 1000) % matches.shown().size()));
     }
 
     /**
@@ -366,6 +410,11 @@ public final class ClientQuestCache {
                               */
                              String textureIcon,
                              /**
+                              * The atlas region when the group wears a sprite icon, and empty otherwise.
+                              * Drawn from the atlas; never beside a texture, like every other icon.
+                              */
+                             String spriteIcon,
+                             /**
                               * The heading's English words when its title is a translation key, and
                               * empty when it is a plain string. See {@link #titleText()}.
                               */
@@ -406,6 +455,11 @@ public final class ClientQuestCache {
                                 * than a second meaning of the id.
                                 */
                                String textureIcon,
+                               /**
+                                * The atlas region when the chapter wears a sprite icon, empty otherwise.
+                                * Drawn from the atlas; never beside a texture, like every other icon.
+                                */
+                               String spriteIcon,
                                List<String> dependsOn, dev.ellipog.tenet.quest.PrerequisiteMode prerequisiteMode,
                                int minRequired, boolean hideUntilDependenciesComplete,
                                /** The title's English words when it is a key, empty when it is text. */
@@ -518,11 +572,18 @@ public final class ClientQuestCache {
                         List<String> dependencies, List<TaskEntry> tasks, List<RewardEntry> rewards,
                         boolean invisible,
                         /**
-                         * Whether this quest gates its dependants. Sparse on the wire: absent means
-                         * it does. The card and the canvas read it for the same counts the engine
-                         * keeps — see {@link dev.ellipog.tenet.client.dev.DependencyProgress}.
+                         * Whether this quest is marked a side quest. Sparse on the wire: absent
+                         * means it is not. A marker, not a gate — it gates exactly like any
+                         * other quest — read for the card.
                          */
                         boolean optional,
+                        /**
+                         * Whether this quest measures before its gate opens: its own flag or its
+                         * chapter's default, resolved server-side. Sparse on the wire: absent
+                         * means strict, which is what every older server says. Read where gated
+                         * visuals are decided — see {@code QuestVisibility}.
+                         */
+                        boolean flexible,
                         /**
                          * The icon's id as the server sent it, kept beside the resolved stack: a stack
                          * that failed to resolve with an id that was sent is a <b>missing item</b>, and
@@ -536,6 +597,8 @@ public final class ClientQuestCache {
                         String iconId,
                         /** The texture path when this quest wears a texture icon, empty otherwise. */
                         String textureIcon,
+                        /** The atlas region when this quest wears a sprite icon, empty otherwise. */
+                        String spriteIcon,
                         /**
                          * The chapter's icon, and the id it was resolved from: the sidebar's chapter row
                          * draws it, and the id keeps the same "missing item" reading the quest's own pair
@@ -545,6 +608,8 @@ public final class ClientQuestCache {
                         ItemStack chapterIcon, String chapterIconId,
                         /** The texture path when the chapter wears a texture icon, empty otherwise. */
                         String chapterTextureIcon,
+                        /** The atlas region when the chapter wears a sprite icon, empty otherwise. */
+                        String chapterSpriteIcon,
                         /**
                          * The per-line styles this quest's own dependencies carry, keyed by dependency
                          * id. Empty means every line follows {@link #chapterDependencyStyle()}, which is
@@ -1075,6 +1140,8 @@ public final class ClientQuestCache {
     private static volatile ItemStack bookIconStack = ItemStack.EMPTY;
     /** The book's texture path when its icon is a texture, and empty otherwise. See {@link #bookIcon}. */
     private static volatile String bookTextureIcon = "";
+    /** The book's atlas region when its icon is a sprite, and empty otherwise. See {@link #bookIcon}. */
+    private static volatile String bookSpriteIcon = "";
 
     /**
      * The file's own answers the client draws with, from the tree root.
@@ -1452,6 +1519,14 @@ public final class ClientQuestCache {
      */
     public static String bookTextureIcon() {
         return bookTextureIcon;
+    }
+
+    /**
+     * The book's atlas region when its icon is a sprite, and empty otherwise.
+     * Drawn from the atlas, like every other sprite icon.
+     */
+    public static String bookSpriteIcon() {
+        return bookSpriteIcon;
     }
 
     /**
@@ -1993,6 +2068,7 @@ public final class ClientQuestCache {
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
             bookTextureIcon = "";
+            bookSpriteIcon = "";
             showLockIcons = false;
             hideExcludedQuests = false;
             pauseGame = false;
@@ -2114,6 +2190,7 @@ public final class ClientQuestCache {
         bookIcon = "";
         bookIconStack = ItemStack.EMPTY;
         bookTextureIcon = "";
+        bookSpriteIcon = "";
         showLockIcons = false;
         hideExcludedQuests = false;
         pauseGame = false;
@@ -2176,6 +2253,7 @@ public final class ClientQuestCache {
                         icon.stack(),
                         icon.id(),
                         icon.texture(),
+                        icon.sprite(),
                         str(group, "titleFallback")));
             }
         }
@@ -2216,6 +2294,7 @@ public final class ClientQuestCache {
                         chapterIcon.stack(),
                         chapterIcon.id(),
                         chapterIcon.texture(),
+                        chapterIcon.sprite(),
                         List.copyOf(dependsOn),
                         mode,
                         chapter.has("minRequired") ? Math.max(0, chapter.get("minRequired").getAsInt()) : 0,
@@ -2303,6 +2382,7 @@ public final class ClientQuestCache {
         bookIcon = book.id();
         bookIconStack = book.stack();
         bookTextureIcon = book.texture();
+        bookSpriteIcon = book.sprite();
         // The file's own answers, when the tree carries them. Each travels sparse and unversioned,
         // so absence is the default — which is what a server that predates the key always says,
         // and what the accessors above promise. Read here, beside the book's identity, for the
@@ -2466,11 +2546,14 @@ public final class ClientQuestCache {
                     List.copyOf(rewards),
                     quest.has("invisible") && quest.get("invisible").getAsBoolean(),
                     quest.has("optional") && quest.get("optional").getAsBoolean(),
+                    quest.has("flexible") && quest.get("flexible").getAsBoolean(),
                     questIcon.id(),
                     questIcon.texture(),
+                    questIcon.sprite(),
                     questChapterIcon.stack(),
                     questChapterIcon.id(),
                     questChapterIcon.texture(),
+                    questChapterIcon.sprite(),
                     dependencyLines(quest),
                     DependencyStyle.from(quest.get("chapterDependencyStyle")).resolved(),
                     // Kept as the file wrote it; a server that sends nothing (or something that is not
@@ -2625,6 +2708,7 @@ public final class ClientQuestCache {
                 conditionEntries(json),
                 json.has("disableToast") && json.get("disableToast").getAsBoolean(),
                 str(json, "textureIcon"),
+                str(json, "spriteIcon"),
                 stack(str(json, "picture"), 1, json.get("pictureComponents")),
                 str(json, "filter"));
     }
@@ -2646,6 +2730,7 @@ public final class ClientQuestCache {
                 conditionEntries(json),
                 json.has("disableToast") && json.get("disableToast").getAsBoolean(),
                 str(json, "textureIcon"),
+                str(json, "spriteIcon"),
                 stack(str(json, "picture"), 1, json.get("pictureComponents")));
     }
 
@@ -2998,7 +3083,7 @@ public final class ClientQuestCache {
      * @param kindField       the arm: absent means the item arm, which is every icon a version-17
      *                        tree ever sent
      */
-    private record ResolvedIcon(ItemStack stack, String id, String texture) {
+    private record ResolvedIcon(ItemStack stack, String id, String texture, String sprite) {
     }
 
     private static ResolvedIcon resolveIcon(JsonObject json, String idField, String componentsField,
@@ -3009,12 +3094,17 @@ public final class ClientQuestCache {
         if ("texture".equals(kind)) {
             // A picture, not a stack: the id stays out of the missing-item reading and the path
             // travels on its own, for the blit at the draw site.
-            return new ResolvedIcon(ItemStack.EMPTY, "", id);
+            return new ResolvedIcon(ItemStack.EMPTY, "", id, "");
+        }
+        if ("sprite".equals(kind)) {
+            // An atlas region, not a stack and not a file: the id stays out of the missing-item
+            // reading and travels on its own, for the atlas draw at the draw site.
+            return new ResolvedIcon(ItemStack.EMPTY, "", "", id);
         }
         if ("entity".equals(kind)) {
-            return new ResolvedIcon(eggStack(id), id, "");
+            return new ResolvedIcon(eggStack(id), id, "", "");
         }
-        return new ResolvedIcon(stack(id, 1, json.get(componentsField)), id, "");
+        return new ResolvedIcon(stack(id, 1, json.get(componentsField)), id, "", "");
     }
 
     /**

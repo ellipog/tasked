@@ -304,6 +304,25 @@ class QuestEditorTest {
     }
 
     @Test
+    @DisplayName("writing one icon arm drops the others, so no file holds two pictures")
+    void iconArmWriteClearsSiblings() {
+        QuestEditor editor = open();
+
+        assertTrue(editor.set("one", "icon.texture", "my_pack:textures/gui/emblem.png"));
+        assertTrue(editor.set("one", "icon.sprite", "occultism:block/chalk_glyph/0"));
+        assertEquals("occultism:block/chalk_glyph/0",
+                editor.quest("one").text("icon.sprite", ""),
+                "the sprite landed");
+        assertFalse(editor.quest("one").has("icon.texture"),
+                "the texture it replaced is gone, not lingering beside it");
+
+        assertTrue(editor.set("one", "icon.item", "minecraft:torch"));
+        assertFalse(editor.quest("one").has("icon.sprite"),
+                "an item pick drops the sprite the same way");
+        assertEquals("minecraft:torch", editor.quest("one").text("icon.item", ""));
+    }
+
+    @Test
     @DisplayName("a move sets both coordinates, and one that changes nothing is not an edit")
     void moves() {
         QuestEditor editor = open();
@@ -334,7 +353,7 @@ class QuestEditorTest {
         assertNotNull(editor.quest(id).text("title", null), "a new quest has a title to replace");
         assertTrue(editor.quest(id).has("tasks"), "and an empty task list, which the format requires");
 
-        QuestEditor.SaveResult saved = editor.save();
+        QuestEditor.SaveResult saved = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
         assertTrue(saved.ok(), () -> "and what it wrote is loadable: " + saved.messages());
 
         String second = editor.create(144, 32);
@@ -405,7 +424,7 @@ class QuestEditorTest {
         assertFalse(Files.exists(folder.resolve("58b556d40904e3b3.json.deleted")),
                 "the declared id names no file here, and must not name the aside either");
 
-        assertTrue(editor.save().ok());
+        assertTrue(editor.save(com.mojang.serialization.JsonOps.INSTANCE).ok());
         String manifestOnDisk = Files.readString(folder.resolve("chapter.json"), StandardCharsets.UTF_8);
         assertFalse(manifestOnDisk.contains("first_tree.json"),
                 () -> "the entry that named the file is the one that goes: " + manifestOnDisk);
@@ -778,7 +797,7 @@ class QuestEditorTest {
         Path aside = editor.folder().resolve("two.json.deleted");
         assertTrue(Files.isRegularFile(aside), "the copy the restore moves back");
 
-        assertTrue(editor.restoreAside(aside).ok());
+        assertTrue(editor.restoreAside(aside, com.mojang.serialization.JsonOps.INSTANCE).ok());
 
         assertTrue(Files.isRegularFile(editor.pathOf("two")), "the file is back");
         assertEquals(before, Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8),
@@ -804,17 +823,20 @@ class QuestEditorTest {
         // The name it would come back to is taken: the move would have to replace a file, and a file is
         // somebody's work -- so the copy stays where it is and the author is told which name is in the way.
         Files.writeString(editor.pathOf("two"), "{\"id\":\"two\"}", StandardCharsets.UTF_8);
-        QuestEditor.Deletion taken = editor.restoreAside(aside);
+        QuestEditor.Deletion taken =
+                editor.restoreAside(aside, com.mojang.serialization.JsonOps.INSTANCE);
         assertFalse(taken.ok(), "the file would have been overwritten");
         assertTrue(taken.refusal().contains("already"), taken.refusal());
         Files.delete(editor.pathOf("two"));
 
-        QuestEditor.Deletion notATombstone = editor.restoreAside(editor.folder().resolve("one.json"));
+        QuestEditor.Deletion notATombstone = editor
+                .restoreAside(editor.folder().resolve("one.json"), com.mojang.serialization.JsonOps.INSTANCE);
         assertFalse(notATombstone.ok(), "a live file is not a set-aside one");
         assertTrue(notATombstone.refusal().contains("not a set-aside"), notATombstone.refusal());
 
         QuestEditor.Deletion elsewhere = editor.restoreAside(
-                editor.folder().getParent().resolve("two.json.deleted"));
+                editor.folder().getParent().resolve("two.json.deleted"),
+                com.mojang.serialization.JsonOps.INSTANCE);
         assertFalse(elsewhere.ok(), "and another chapter's copy is not this editor's to move");
         assertTrue(elsewhere.refusal().contains("not in this chapter"), elsewhere.refusal());
     }
@@ -926,7 +948,7 @@ class QuestEditorTest {
                 "the pasted copy lands under its own file name");
         assertEquals(removed, Files.readString(aside, StandardCharsets.UTF_8),
                 "and the removed copy is untouched");
-        assertTrue(editor.save().ok(), "the manifest is written on a save, like every other edit");
+        assertTrue(editor.save(com.mojang.serialization.JsonOps.INSTANCE).ok(), "the manifest is written on a save, like every other edit");
         assertTrue(dev.ellipog.tenet.quest.QuestFiles.discover(root).ok(),
                 "so the chapter still describes itself");
     }
@@ -1028,7 +1050,7 @@ class QuestEditorTest {
         assertEquals("58b556d40904e3b3", made, "with the copy gone, the id is free again");
         assertTrue(Files.isRegularFile(folder.resolve("58b556d40904e3b3.json")),
                 "and it is written under the id, not under the removed file's name");
-        assertTrue(editor.save().ok());
+        assertTrue(editor.save(com.mojang.serialization.JsonOps.INSTANCE).ok());
         assertTrue(dev.ellipog.tenet.quest.QuestFiles.discover(root).ok(),
                 "so the chapter names the file it holds");
     }
@@ -1077,7 +1099,7 @@ class QuestEditorTest {
 
         editor.move("one", 32, 32);
         editor.set("two", "title", "Two, Renamed");
-        QuestEditor.SaveResult result = editor.save();
+        QuestEditor.SaveResult result = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
 
         assertTrue(result.ok(), () -> "refused: " + result.messages());
         assertEquals(2, result.written());
@@ -1099,7 +1121,7 @@ class QuestEditorTest {
         editor.set("one", "icon.item", "not an item id");
         editor.set("two", "title", "this one is fine");
 
-        QuestEditor.SaveResult result = editor.save();
+        QuestEditor.SaveResult result = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
 
         assertFalse(result.ok(), "the save is refused");
         assertEquals(0, result.written());
@@ -1108,6 +1130,50 @@ class QuestEditorTest {
         assertEquals(oneBefore, Files.readString(editor.pathOf("one"), StandardCharsets.UTF_8),
                 "and not one byte of the chapter was written");
         assertTrue(editor.dirty(), "the edits are still there to fix");
+    }
+
+    @Test
+    @DisplayName("blind ops refuse registry-backed components, readably")
+    void blindOpsRefuseComponents(@TempDir Path dir) throws IOException {
+        // The boundary the server-ops threading exists for: a save judging with blind ops
+        // refuses component types no registry can see — in game those come from the server's
+        // own registries (see TenetNetworking.serverOps), which is why the same chapter
+        // loads clean and refuses to save. The refusal itself must read as sentences, not
+        // record dumps: those lines are toasted at the author.
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("pack").resolve("gear");
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve("chapter.json"), """
+                {
+                  "$schema": "../../_schema/chapter.schema.json",
+                  "id": "gear",
+                  "title": "Gear",
+                  "quests": [ "sword.json" ]
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("sword.json"), """
+                {
+                  "id": "sword",
+                  "title": "Sword",
+                  "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:iron_sword" },
+                  "tasks": [{ "type": "tenet:item", "item": "minecraft:iron_sword",
+                              "components": { "no_such_mod:some_component": 1 } }]
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(root.resolve("pack").resolve("group.json"), """
+                { "id": "pack", "title": "Pack", "chapters": [ "gear" ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "gear").orElseThrow();
+        assertTrue(editor.move("sword", 10, 10));
+
+        QuestEditor.SaveResult refused = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
+        assertFalse(refused.ok(), "blind ops cannot see component types");
+        assertTrue(refused.messages().stream().noneMatch(message -> message.contains("DataProblem[")),
+                "and refusals read as sentences, not record dumps: " + refused.messages());
+        assertTrue(refused.messages().stream().anyMatch(message -> message.contains("sword.json")),
+                "naming the file: " + refused.messages());
     }
 
     // ------------------------------------------------------------------
@@ -1123,7 +1189,7 @@ class QuestEditorTest {
         assertNotNull(editor.groupJson(), "the manifest beside the chapter is open for editing");
         assertTrue(editor.setGroup("title", "Getting Started, Properly"), "the group's title is set");
         assertTrue(editor.setGroup("icon", icon("minecraft:anvil")), "and its own icon");
-        assertTrue(editor.save().ok(), "the save validates it as a group document and writes it");
+        assertTrue(editor.save(com.mojang.serialization.JsonOps.INSTANCE).ok(), "the save validates it as a group document and writes it");
 
         com.google.gson.JsonObject saved = com.google.gson.JsonParser
                 .parseString(Files.readString(groupPath, StandardCharsets.UTF_8)).getAsJsonObject();
@@ -1154,7 +1220,7 @@ class QuestEditorTest {
         assertTrue(editor.setGroup("icon", icon("not an item id")),
                 "the edit itself is written into the open tree");
 
-        QuestEditor.SaveResult result = editor.save();
+        QuestEditor.SaveResult result = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
 
         assertFalse(result.ok(), "the group's icon is validated as an item reference, like a chapter's");
         assertEquals(0, result.written(), "and nothing at all is written");
@@ -1276,7 +1342,7 @@ class QuestEditorTest {
         assertTrue(editor.set("58b556d40904e3b3", "dependsOn", java.util.List.of("one")),
                 "a dependency is a list of ids, which is the edit the card's own rows make");
 
-        QuestEditor.SaveResult result = editor.save();
+        QuestEditor.SaveResult result = editor.save(com.mojang.serialization.JsonOps.INSTANCE);
 
         assertTrue(result.ok(), () -> "refused: " + result.messages());
         assertEquals(1, result.written(), "the one changed quest is the one file written");
